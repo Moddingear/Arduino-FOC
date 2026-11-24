@@ -59,11 +59,18 @@ int StepperMotor::init() {
   // if using open loop control, set a CW as the default direction if not already set
   // only if no sensor is used
   if(!sensor){
+    #if SIMPLEFOC_SPLIT_CONTROLLER
+    if (sensor_direction == Direction::UNKNOWN)
+    {
+      sensor_direction = Direction::CW;
+    }
+    #else
     if ((controller==MotionControlType::angle_openloop
       ||controller==MotionControlType::velocity_openloop)
       && (sensor_direction == Direction::UNKNOWN)) {
         sensor_direction = Direction::CW;
     }
+    #endif
   }
 
   _delay(500);

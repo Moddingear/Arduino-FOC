@@ -10,6 +10,9 @@
 #include "../defaults.h"
 #include "../pid.h"
 #include "../lowpass_filter.h"
+#if SIMPLEFOC_SPLIT_CONTROLLER
+#include "Controller.h"
+#endif
 
 #define MOT_ERR "ERR-MOT:"
 #define MOT_WARN "WARN-MOT:"
@@ -175,12 +178,14 @@ class FOCMotor
     // State calculation methods 
     /** Shaft angle calculation in radians [rad] */
     float shaftAngle();
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
     /** 
      * Shaft angle calculation function in radian per second [rad/s]
      * It implements low pass filtering
      */
     float shaftVelocity();
     float shaftVelocity(float dt);
+    #endif
 
     /** 
      * Electrical angle calculation  
@@ -198,6 +203,7 @@ class FOCMotor
     int characteriseMotor(float voltage, float correction_factor);
     virtual int characteriseMotor(float voltage) = 0;
 
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
     /**
      * Auto-tune the current controller PID parameters based on desired bandwidth.
      * Uses a simple method that assumes a first order system and requires knowledge of
@@ -211,19 +217,24 @@ class FOCMotor
     // state variables
     float target; //!< current target value - depends of the controller
     float feed_forward_velocity = 0.0f; //!< current feed forward velocity
+    #endif
   	float shaft_angle;//!< current motor angle
   	float electrical_angle;//!< current electrical angle
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
   	float shaft_velocity;//!< current motor velocity 
     float current_sp;//!< target current ( q current )
     float shaft_velocity_sp;//!< current target velocity
     float shaft_angle_sp;//!< current target angle
+    #endif
     DQVoltage_s voltage;//!< current d and q voltage set to the motor
     DQCurrent_s current;//!< current d and q current measured
     float voltage_bemf; //!< estimated backemf voltage (if provided KV constant)
     float	Ualpha, Ubeta; //!< Phase voltages U alpha and U beta used for inverse Park and Clarke transform
 
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
     DQCurrent_s feed_forward_current = {0.0f, 0.0f};//!< current d and q current measured
     DQVoltage_s feed_forward_voltage = {0.0f, 0.0f};//!< current d and q voltage set to the motor
+    #endif
 
     // motor configuration parameters
     float voltage_sensor_align;//!< sensor and motor align voltage parameter
@@ -232,7 +243,7 @@ class FOCMotor
     // motor physical parameters
     float	phase_resistance; //!< motor phase resistance
     int pole_pairs;//!< motor pole pairs number
-    float KV_rating; //!< motor KV rating
+    float KV_rating; //!< motor KV rating, RPM/V
     float	phase_inductance; //!< motor phase inductance q axis - FOR BACKWARDS COMPATIBILITY
     DQ_s	axis_inductance{NOT_SET, NOT_SET}; //!< motor direct axis phase inductance
     
@@ -251,6 +262,9 @@ class FOCMotor
     int8_t modulation_centered = 1;//!< flag (1) centered modulation around driver limit /2  or  (0) pulled to 0
 
 
+    #if SIMPLEFOC_SPLIT_CONTROLLER
+    Controller *controller = nullptr;
+    #else
     // configuration structures
     TorqueControlType torque_controller; //!< parameter determining the torque control type
     MotionControlType controller; //!< parameter determining the control loop to be used
@@ -266,6 +280,7 @@ class FOCMotor
     LowPassFilter LPF_angle{0.0f};//!<  parameter determining the angle low pass filter configuration 
     unsigned int motion_downsample = DEF_MOTION_DOWNSMAPLE; //!< parameter defining the ratio of downsampling for move commad
     unsigned int motion_cnt = 0; //!< counting variable for downsampling for move commad
+    #endif
 
     // sensor related variabels
     float sensor_offset; //!< user defined sensor zero offset
@@ -310,8 +325,12 @@ class FOCMotor
     Print* monitor_port; //!< Serial terminal variable if provided
 
     //!< time between two loopFOC executions in microseconds
+    #if SIMPLEFOC_SPLIT_CONTROLLER
+    uint32_t control_time_us = 0;
+    #else
     uint32_t loopfoc_time_us = 0; //!< filtered loop times
     uint32_t move_time_us = 0; // filtered motion control times
+    #endif
 
     /**
      * Update limit values in controllers when changed
@@ -343,6 +362,7 @@ class FOCMotor
      */
     void updateVoltageLimit(float new_voltage_limit);
 
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
     /**
      * Update torque control type and related controller limit values
      * @param new_torque_controller - new torque control type
@@ -370,6 +390,7 @@ class FOCMotor
      */
     float velocityOpenloop(float target_velocity);
     float velocityOpenloop(float target_velocity, float dt);
+    #endif
     /**
      * Function (iterative) generating open loop movement towards the target angle
      * it uses voltage_limit and velocity_limit variables
@@ -379,7 +400,9 @@ class FOCMotor
     float angleOpenloop(float target_angle);
     float angleOpenloop(float target_angle, float dt);
   
-
+    #if SIMPLEFOC_SPLIT_CONTROLLER
+    
+    #else
     /**
      * Function setting a custom motion control method defined by the user
      * @note the custom control method has to be defined by the user and should follow the signature: float controlMethod(FOCMotor* motor)
@@ -388,6 +411,7 @@ class FOCMotor
     void linkCustomMotionControl(float (*controlMethod)(FOCMotor* motor)){
       customMotionControlCallback = controlMethod;
     }
+    #endif
 
   protected:
 
@@ -397,12 +421,18 @@ class FOCMotor
      * It filters the value using low pass filtering alpha = 0.1
      * @note - using _micros() function - be aware of its overflow every ~70 minutes
      */
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
     void updateLoopFOCTime(){
       updateTime(loopfoc_time_us, last_loopfoc_time_us, last_loopfoc_timestamp_us);
     }
+    #endif
 
     void updateMotionControlTime(){
+      #if SIMPLEFOC_SPLIT_CONTROLLER
+      updateTime(control_time_us, last_control_time_us, last_control_timestamp_us);
+      #else
       updateTime(move_time_us, last_move_time_us, last_move_timestamp_us);
+      #endif
     }
 
     /** Sensor alignment to electrical 0 angle of the motor */
@@ -412,10 +442,15 @@ class FOCMotor
     /** Motor and sensor alignment to the sensors absolute 0 angle  */
     int absoluteZeroSearch();
     
+    #if SIMPLEFOC_SPLIT_CONTROLLER
+    uint32_t last_control_timestamp_us = 0; //!< timestamp of the last move execution in microseconds
+    uint32_t last_control_time_us = 0; //!< last elapsed time of move in microseconds
+    #else
     uint32_t last_loopfoc_timestamp_us = 0; //!< timestamp of the last loopFOC execution in microseconds
     uint32_t last_loopfoc_time_us = 0; //!< last elapsed time of loopFOC in microseconds
     uint32_t last_move_timestamp_us = 0; //!< timestamp of the last move execution in microseconds
     uint32_t last_move_time_us = 0; //!< last elapsed time of move in microseconds
+    #endif
   private:
     // monitor counting variable
     unsigned int monitor_cnt = 0 ; //!< counting variable

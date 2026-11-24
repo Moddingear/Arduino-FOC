@@ -152,11 +152,13 @@ parsed_user_command Commander::parse_user_command(char* user_command)
 
 void Commander::motor(FOCMotor* motor, char* user_command) {
   return this->motor(motor, parse_user_command(user_command));
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   // if target setting
   if(isDigit(user_command[0]) || user_command[0] == '-' || user_command[0] == '+' || isSentinel(user_command[0])){
     target(motor, user_command);
     return;
   }
+  #endif
 
   // parse command letter
   char cmd = user_command[0];
@@ -187,6 +189,7 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
 
   // a bit of optimisation of variable memory for Arduino UNO (atmega328)
   switch(command.command_chars[0]){
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
     case CMD_C_Q_PID:      //
       printVerbose(F("PID curr q| "));
       if(command.command_chars[1] == SCMD_LPF_TF) lpf(&motor->LPF_current_q, command.consume_command_chars(1));
@@ -207,6 +210,7 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
       if(command.command_chars[1] == SCMD_LPF_TF) lpf(&motor->LPF_angle, command.consume_command_chars(1));
       else pid(&motor->P_angle, command.consume_command_chars(1));
       break;
+    #endif
     case CMD_LIMITS:      //
      printVerbose(F("Limits| "));
       switch (command.command_chars[1]){
@@ -236,11 +240,13 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
           break;
       }
       break;
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
     case CMD_MOTION_TYPE:
     case CMD_TORQUE_TYPE:
     case CMD_STATUS:
       motion(motor, command);
       break;
+    #endif
     case CMD_PWMMOD:
        // PWM modulation change
        printVerbose(F("PWM Mod | "));
@@ -351,7 +357,9 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
           printVerbose(F("Reinit!"));
           motor->sensor_direction = Direction::UNKNOWN; // reset sensor direction estimation
           motor->zero_electric_angle = NOT_SET; // reset zero electric angle
+          #if !SIMPLEFOC_SPLIT_CONTROLLER
           motor->target = 0; // reset target
+          #endif
           motor->initFOC();
           println(F("done"));
           break;
@@ -368,6 +376,13 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
           }
           break;
         case SCMD_TUNE_CURR:
+        #if SIMPLEFOC_SPLIT_CONTROLLER
+          if (motor->controller)
+          {
+            motor->controller->Command(command, *this);
+          }
+          break;
+        #else
           printVerbose(F("PI tune curr.| "));
           {
             int res = motor->tuneCurrentController(command.value);
@@ -379,6 +394,7 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
             }
           }
           break;
+        #endif
         default:
           printError();
           break;
@@ -390,8 +406,12 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
         case SCMD_GET:      // get command
           switch((uint8_t)command.value){
             case 0: // get target
+            #if SIMPLEFOC_SPLIT_CONTROLLER
+              println("Not supported");
+            #else
               printVerbose(F("target: "));
               println(motor->target);
+            #endif
               break;
             case 1: // get voltage q
               printVerbose(F("Vq: "));
@@ -410,8 +430,12 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
               println(motor->current.d);
               break;
             case 5: // get velocity
+            #if SIMPLEFOC_SPLIT_CONTROLLER
+              println("Not supported");
+            #else
               printVerbose(F("vel: "));
               println(motor->shaft_velocity);
+            #endif
               break;
             case 6: // get angle
               printVerbose(F("angle: "));
@@ -419,8 +443,10 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
               break;
             case 7: // get all states
               printVerbose(F("all: "));
+              #if !SIMPLEFOC_SPLIT_CONTROLLER
               print(motor->target);
               print(";");
+              #endif
               print(motor->voltage.q);
               print(";");
               print(motor->voltage.d);
@@ -429,8 +455,10 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
               print(";");
               print(motor->current.d);
               print(";");
+              #if !SIMPLEFOC_SPLIT_CONTROLLER
               print(motor->shaft_velocity);
               print(";");
+              #endif
               println(motor->shaft_angle);
               break;
             default:
@@ -473,8 +501,20 @@ void Commander::motor(FOCMotor* motor, parsed_user_command command) {
        }
       break;
     default:  // unknown cmd
+      #if SIMPLEFOC_SPLIT_CONTROLLER
+      if (motor->controller != nullptr)
+      {
+        motor->controller->Command(command, *this);
+      }
+      else
+      {
+        printVerbose(F("no controller"));
+        printError();
+      }
+      #else
       printVerbose(F("unknown cmd "));
       printError();
+      #endif
   }
 }
 
@@ -494,8 +534,20 @@ void Commander::motion(FOCMotor* motor, parsed_user_command command, char* separ
       switch(command.command_chars[1]){
         case SCMD_TIME:
           printVerbose(F(" time: "));
+          #if SIMPLEFOC_SPLIT_CONTROLLER
+          println((int)motor->control_time_us);
+          #else
           println((int)motor->move_time_us);
+          #endif
           break;
+        #if SIMPLEFOC_SPLIT_CONTROLLER
+        default:
+          if (motor->controller)
+          {
+            motor->controller->Command(command, *this);
+          }
+          break;
+        #else
         case SCMD_DOWNSAMPLE:
             printVerbose(F(" downsample: "));
             if(command.has_data) motor->motion_downsample = command.value;
@@ -529,6 +581,7 @@ void Commander::motion(FOCMotor* motor, parsed_user_command command, char* separ
               break;
           }
           break;
+        #endif
         }
       break;
     case CMD_TORQUE_TYPE:
@@ -537,8 +590,20 @@ void Commander::motion(FOCMotor* motor, parsed_user_command command, char* separ
       switch(command.command_chars[1]){
         case SCMD_TIME:
           printVerbose(F(" time: "));
+          #if SIMPLEFOC_SPLIT_CONTROLLER
+          println((int)motor->control_time_us);
+          #else
           println((int)motor->loopfoc_time_us);
+          #endif
           break;
+        #if SIMPLEFOC_SPLIT_CONTROLLER
+        default:
+          if (motor->controller)
+          {
+            motor->controller->Command(command, *this);
+          }
+          break;
+        #else
         default:
           if(command.has_data && (int8_t)command.value >= 0 && (int8_t)command.value < 4) // if set command
             motor->updateTorqueControlType((TorqueControlType)command.value); // update torque control type
@@ -559,6 +624,7 @@ void Commander::motion(FOCMotor* motor, parsed_user_command command, char* separ
               printError();
           }
           break;
+        #endif
         }
       break;
     case CMD_STATUS:
@@ -653,13 +719,18 @@ void Commander::scalar(float* value,  parsed_user_command command){
   println(*value);
 }
 
-
 void Commander::target(FOCMotor* motor,  char* user_cmd, char* separator){
   return target(motor, parse_user_command(user_cmd), separator);
 }
 
 void Commander::target(FOCMotor* motor, parsed_user_command command, char* separator){
   // if no values sent
+  #if SIMPLEFOC_SPLIT_CONTROLLER
+  if (motor->controller)
+  {
+    motor->controller->Command(command, *this);
+  }
+  #else
   if(command.num_command_chars == 0 && !command.has_data) {
     printlnMachineReadable(motor->target);
     return;
@@ -745,6 +816,7 @@ void Commander::target(FOCMotor* motor, parsed_user_command command, char* separ
   }
   printVerbose(F("Target: "));
   println(motor->target);
+  #endif
 }
 
 

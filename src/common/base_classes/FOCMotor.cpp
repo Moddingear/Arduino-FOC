@@ -21,13 +21,17 @@ FOCMotor::FOCMotor()
   // default modulation is SinePWM
   foc_modulation = FOCModulationType::SinePWM;
 
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   // default target value
   target = 0;
   torque_controller = TorqueControlType::voltage;
+  #endif
   voltage.d = 0;
   voltage.q = 0;
   // current target values
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   current_sp = 0;
+  #endif
   current.q = 0;
   current.d = 0;
 
@@ -47,12 +51,16 @@ FOCMotor::FOCMotor()
   current_sense = nullptr;
 
   monitor_pointers[0] = &shaft_angle;
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   monitor_pointers[1] = &shaft_velocity;
+  #endif
   monitor_pointers[2] = &current.d;
   monitor_pointers[3] = &current.q;
   monitor_pointers[4] = &voltage.d;
   monitor_pointers[5] = &voltage.q;
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   monitor_pointers[6] = &target;
+  #endif
 }
 
 void FOCMotor::disable()
@@ -99,6 +107,7 @@ float FOCMotor::shaftAngle() {
   if(!sensor) return shaft_angle;
   return sensor_direction*sensor->getAngle() - sensor_offset;
 }
+#if !SIMPLEFOC_SPLIT_CONTROLLER
 // shaft velocity calculation
 float FOCMotor::shaftVelocity() {
   // if no sensor linked return previous value ( for open loop )
@@ -110,6 +119,7 @@ float FOCMotor::shaftVelocity(float dt) {
   if(!sensor) return shaft_velocity;
   return sensor_direction*LPF_velocity(sensor->getVelocity(), dt);
 }
+#endif
 
 float FOCMotor::electricalAngle(){
   // if no sensor linked return previous value ( for open loop )
@@ -400,11 +410,13 @@ void FOCMotor::monitor() {
   }
   
   #else
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   if(monitor_variables & _MON_TARGET){
     if(!printed && monitor_start_char) monitor_port->print(monitor_start_char);
     monitor_port->print(target,monitor_decimals);    
     printed= true;
   }
+  #endif
   if(monitor_variables & _MON_VOLT_Q) {
     if(!printed && monitor_start_char) monitor_port->print(monitor_start_char);
     else if(printed) monitor_port->print(monitor_separator);
@@ -420,10 +432,17 @@ void FOCMotor::monitor() {
   // read currents if possible - even in voltage mode (if current_sense available)
   if(monitor_variables & _MON_CURR_Q || monitor_variables & _MON_CURR_D) {
     DQCurrent_s c = current;
-    if( current_sense && torque_controller != TorqueControlType::foc_current ){
+    #if SIMPLEFOC_SPLIT_CONTROLLER
+    if( current_sense )
+    #else
+    if( current_sense && torque_controller != TorqueControlType::foc_current )
+    #endif
+    {
       c = current_sense->getFOCCurrents(electrical_angle);
+      #if !SIMPLEFOC_SPLIT_CONTROLLER
       c.q = LPF_current_q(c.q);
       c.d = LPF_current_d(c.d);
+      #endif
     }
     if(monitor_variables & _MON_CURR_Q) {
       if(!printed && monitor_start_char) monitor_port->print(monitor_start_char);
@@ -438,13 +457,14 @@ void FOCMotor::monitor() {
       printed= true;
     }
   }
- 
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   if(monitor_variables & _MON_VEL) {
     if(!printed && monitor_start_char) monitor_port->print(monitor_start_char);
     else if(printed) monitor_port->print(monitor_separator);
     monitor_port->print(shaft_velocity,monitor_decimals);
     printed= true;
   }
+  #endif
   if(monitor_variables & _MON_ANGLE) {
     if(!printed && monitor_start_char) monitor_port->print(monitor_start_char);
     else if(printed) monitor_port->print(monitor_separator);
@@ -459,7 +479,7 @@ void FOCMotor::monitor() {
 }   
 
 
-
+#if !SIMPLEFOC_SPLIT_CONTROLLER
 // Function (iterative) generating open loop movement for target velocity
 // - target_velocity - rad/s
 // it uses voltage_limit variable
@@ -486,7 +506,7 @@ float FOCMotor::velocityOpenloop(float target_velocity, float dt){
   else
     return current_limit;
 }
-
+#endif
 // Function (iterative) generating open loop movement towards the target angle
 // - target_angle - rad
 // it uses voltage_limit and velocity_limit variables
@@ -510,29 +530,40 @@ float FOCMotor::angleOpenloop(float target_angle, float dt){
   //                        when the total position is large.
   if(abs( target_angle - shaft_angle ) > abs(velocity_limit*dt)){
     shaft_angle += _sign(target_angle - shaft_angle) * abs( velocity_limit )*dt;
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
     shaft_velocity = velocity_limit;
+    #endif
   }else{
     shaft_angle = target_angle;
+    #if !SIMPLEFOC_SPLIT_CONTROLLER
     shaft_velocity = 0;
+    #endif
   }
 
+  #if SIMPLEFOC_SPLIT_CONTROLLER
+    return voltage_limit;
+  #else
   // use voltage limit or current limit
   if (torque_controller == TorqueControlType::voltage)
     return voltage_limit;
   else
     return current_limit;
+  #endif
 }
 
 // Update limit values in controllers when changed
 void FOCMotor::updateVelocityLimit(float new_velocity_limit) {
   velocity_limit = new_velocity_limit;
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   if(controller != MotionControlType::angle_nocascade) 
     P_angle.limit = abs(velocity_limit); // if angle control but no velocity cascade, limit the angle controller by the velocity limit
+  #endif
 }
 
 // Update limit values in controllers when changed
 void FOCMotor::updateCurrentLimit(float new_current_limit) {
   current_limit = new_current_limit;
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   if(torque_controller != TorqueControlType::voltage) {
     // if current control
     PID_velocity.limit = new_current_limit;
@@ -540,12 +571,14 @@ void FOCMotor::updateCurrentLimit(float new_current_limit) {
       // if angle control but no velocity cascade, limit the angle controller by the current limit
       P_angle.limit = new_current_limit;
   }
+  #endif
 }
 
 // Update limit values in controllers when changed
 // PID values and limits
 void FOCMotor::updateVoltageLimit(float new_voltage_limit) {
   voltage_limit = new_voltage_limit;
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   PID_current_q.limit = new_voltage_limit;
   PID_current_d.limit = new_voltage_limit;
   if(torque_controller == TorqueControlType::voltage) {
@@ -555,8 +588,10 @@ void FOCMotor::updateVoltageLimit(float new_voltage_limit) {
       // if angle control but no velocity cascade, limit the angle controller by the voltage limit
       P_angle.limit = new_voltage_limit;
   }
+  #endif
 }
 
+#if !SIMPLEFOC_SPLIT_CONTROLLER
 // Update torque control type and related controller limit values
 void FOCMotor::updateTorqueControlType(TorqueControlType new_torque_controller) {
   torque_controller = new_torque_controller;
@@ -657,6 +692,7 @@ int FOCMotor::tuneCurrentController(float bandwidth) {
   motor_status = old_status;
   return 0;
 }
+#endif
 
 
 
@@ -664,6 +700,7 @@ int FOCMotor::tuneCurrentController(float bandwidth) {
 // The faster it can be run the better
 void FOCMotor::loopFOC() {
   // update loop time measurement
+#if !SIMPLEFOC_SPLIT_CONTROLLER
   updateLoopFOCTime();
 
   float dt = last_loopfoc_time_us * 1e-6f;
@@ -677,7 +714,6 @@ void FOCMotor::loopFOC() {
 
   // if disabled do nothing
   if(!enabled) return;
-
   // if open-loop do nothing
   if( controller==MotionControlType::angle_openloop || controller==MotionControlType::velocity_openloop ) 
     // calculate the open loop electirical angle
@@ -750,6 +786,7 @@ void FOCMotor::loopFOC() {
   }
   // set the phase voltage - FOC heart function :)
   setPhaseVoltage(voltage.q, voltage.d, electrical_angle);
+#endif
 }
 
 // Iterative function running outer loop of the FOC algorithm
@@ -759,12 +796,14 @@ void FOCMotor::loopFOC() {
 // - if target is not set it uses motor.target value
 void FOCMotor::move(float new_target) {
 
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
   // set internal target variable
   if(_isset(new_target) ) target = new_target;
   
   // downsampling (optional)
   if(motion_cnt++ < motion_downsample) return;
   motion_cnt = 0;
+  #endif
 
   // if initFOC is being executed at the moment, do nothing
   if(motor_status == FOCMotorStatus::motor_calibrating) return;
@@ -774,7 +813,30 @@ void FOCMotor::move(float new_target) {
   // a specific frequency (or almost)
   updateMotionControlTime();
 
+  #if SIMPLEFOC_SPLIT_CONTROLLER
+  float dt = last_control_time_us * 1e-6f;
+  #else
   float dt = last_move_time_us * 1e-6f;
+  #endif
+
+  #if SIMPLEFOC_SPLIT_CONTROLLER
+  if (!controller)
+  {
+    SIMPLEFOC_MOTOR_ERROR("No controller!");
+    return;
+  }
+  
+  float retval = controller->Control(new_target, dt);
+  if (retval == NOT_SET)
+  {
+    setPhaseVoltage(0, 0, electrical_angle);
+  }
+  else
+  {
+    setPhaseVoltage(voltage.q, voltage.d, electrical_angle);
+  }
+  
+  #else
   // read value even if motor is disabled to keep the monitoring updated
   // except for the open loop modes where the values are updated within angle/velocityOpenLoop functions
   
@@ -855,6 +917,7 @@ void FOCMotor::move(float new_target) {
         current_sp = customMotionControlCallback(this);
       break;
   }
+  #endif
 }
 
 
@@ -874,6 +937,9 @@ int  FOCMotor::initFOC() {
     sensor->update();
     shaft_angle = shaftAngle();
   } else {
+    #if SIMPLEFOC_SPLIT_CONTROLLER
+    SIMPLEFOC_MOTOR_ERROR("Missing sensor!");
+    #else
     SIMPLEFOC_MOTOR_DEBUG("No sensor.");
     if ((controller == MotionControlType::angle_openloop || controller == MotionControlType::velocity_openloop)){
       exit_flag = 1;    
@@ -881,6 +947,7 @@ int  FOCMotor::initFOC() {
       SIMPLEFOC_MOTOR_ERROR("Only openloop allowed!");
       exit_flag = 0; // no FOC without sensor
     }
+    #endif
   }
   
   // aligning the current sensor - can be skipped

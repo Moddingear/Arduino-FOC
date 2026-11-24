@@ -260,6 +260,9 @@ class Commander
     char received_chars[MAX_COMMAND_LENGTH] = {0}; //!< so far received user message - waiting for newline
     int rec_cnt = 0; //!< number of characters receives
 
+    #if SIMPLEFOC_SPLIT_CONTROLLER
+  public:
+    #endif
     // serial printing functions
     /**
      *  print the string message only if verbose mode on
