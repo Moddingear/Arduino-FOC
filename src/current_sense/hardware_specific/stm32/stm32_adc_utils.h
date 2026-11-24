@@ -3,7 +3,10 @@
 
 #include "Arduino.h"
 
-#if defined(_STM32_DEF_) 
+#if defined(ARDUINO_ARCH_STM32)
+
+#include "stm32_handle_types.h"
+#include "../../../drivers/hardware_specific/stm32/stm32_handle_types.h"
 
 #define _TRGO_NOT_AVAILABLE 12345
 
@@ -20,10 +23,16 @@
   * @param  adc: ADC_TypeDef a pointer to the ADC handle
   * @retval Valid HAL channel
   */
-uint32_t _getADCChannel(PinName pin, ADC_TypeDef* adc = NP);
+ADC_CHANNEL_TYPE _getADCChannel(PinName pin, ADC_TypeDef* adc = NP);
 
-constexpr uint32_t _getADCChannel(uint8_t ind)
+constexpr ADC_CHANNEL_TYPE _getADCChannel(uint8_t ind)
 {
+  #ifdef USE_HALV2_DRIVER
+  #if LL_ADC_CHANNEL_0 != 0
+  #error "Implementation error in _getADCChannel for halv2 for your chip"
+  #endif
+  return static_cast<hal_adc_channel_t>(ind); //works for channels to GPIO pins, doesn't work for internal
+  #else
   switch (ind)
   {
 #ifdef ADC_CHANNEL_0
@@ -157,6 +166,7 @@ constexpr uint32_t _getADCChannel(uint8_t ind)
     default:
       return 0;
   }
+  #endif
 }
 
 constexpr uint32_t _OPAMP_internal_channel_to_ADC(uint8_t opamp_idx, ADC_TypeDef *handle_pointer)
@@ -320,10 +330,10 @@ constexpr uint32_t _getADCRegularRank(uint8_t ind)
 }
 
 // timer to injected TRGO - architecure specific
-uint32_t _timerToInjectedTRGO(TIM_HandleTypeDef* timer);
+uint32_t _timerToInjectedTRGO(TIMER_HANDLE_TYPE* timer);
 
 // timer to regular TRGO - architecure specific
-uint32_t _timerToRegularTRGO(TIM_HandleTypeDef* timer);
+uint32_t _timerToRegularTRGO(TIMER_HANDLE_TYPE* timer);
 
 constexpr int _adcToIndex(ADC_TypeDef *AdcHandle)
 {
@@ -356,9 +366,9 @@ constexpr int _adcToIndex(ADC_TypeDef *AdcHandle)
 }
 
 // function returning index of the ADC instance
-constexpr int _adcToIndex(ADC_HandleTypeDef *AdcHandle)
+constexpr int _adcToIndex(ADC_HANDLE_TYPE *AdcHandle)
 {
-  return _adcToIndex(AdcHandle->Instance);
+  return _adcToIndex(ADC_INSTANCE(AdcHandle));
 }
 
 constexpr ADC_TypeDef* _indexToADC(uint8_t index)
@@ -394,8 +404,8 @@ constexpr ADC_TypeDef* _indexToADC(uint8_t index)
 // functions helping to find the best ADC channel
 int _findIndexOfFirstPinMapADCEntry(int pin);
 int _findIndexOfLastPinMapADCEntry(int pin);
-ADC_TypeDef* _findBestADCForInjectedPins(int num_pins, int pins[], ADC_HandleTypeDef adc_handles[]);
-ADC_TypeDef* _findBestADCForRegularPin(int pin, ADC_HandleTypeDef adc_handles[]);
+ADC_TypeDef* _findBestADCForInjectedPins(int num_pins, int pins[], ADC_HANDLE_TYPE adc_handles[]);
+ADC_TypeDef* _findBestADCForRegularPin(int pin, ADC_HANDLE_TYPE adc_handles[]);
 
 // Structure to hold ADC interrupt configuration per ADC instance
 struct Stm32AdcInterruptConfig {
@@ -407,7 +417,7 @@ struct Stm32AdcInterruptConfig {
 // returns 0 if no interrupt is needed, 1 if interrupt is needed
 uint32_t _initTimerInterruptDownsampling(Stm32CurrentSenseParams* cs_params, STM32DriverParams* driver_params, Stm32AdcInterruptConfig& adc_interrupt_config);
 // returns 0 if no downsampling is needed, 1 if downsampling is needed, 2 if error
-uint8_t _handleInjectedConvCpltCallback(ADC_HandleTypeDef *AdcHandle, Stm32AdcInterruptConfig& adc_interrupt_config, uint32_t adc_val[4]);
+uint8_t _handleInjectedConvCpltCallback(ADC_HANDLE_TYPE *AdcHandle, Stm32AdcInterruptConfig& adc_interrupt_config, uint32_t adc_val[4]);
 // reads the ADC injected voltage for the given pin
 // returns the voltage 
 // if the pin is not found in the current sense parameters, returns 0

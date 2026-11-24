@@ -2,7 +2,7 @@
 #include "stm32_mcu.h"
 #include "stm32_adc_hal.h"
 
-#if defined(_STM32_DEF_) 
+#if defined(ARDUINO_ARCH_STM32)
 
 #ifdef STM32F1xx
 #include "stm32f1xx_ll_adc.h"
@@ -11,8 +11,7 @@
 #include "stm32f7xx_ll_adc.h"
 #endif
 
-
-extern ADC_HandleTypeDef hadc[];
+extern ADC_HANDLE_TYPE hadc[];
 
 
 int _findIndexOfEntry(PinName pin) {
@@ -74,7 +73,7 @@ int _findIndexOfLastPinMapADCEntry(int pin) {
 // returns the ADC_TypeDef pointer or nullptr if not found
 // It returns already configured ADC if possible
 // otherwise it returns the first available unconfigured ADC
-ADC_TypeDef* _findBestADCForRegularPin(int pin, ADC_HandleTypeDef adc_handles[]) {
+ADC_TypeDef* _findBestADCForRegularPin(int pin, ADC_HANDLE_TYPE adc_handles[]) {
   PinName pinName = digitalPinToPinName(pin);
   int index = _findIndexOfFirstPinMapADCEntry(pin);
   int last_index = _findIndexOfLastPinMapADCEntry(pin);
@@ -86,7 +85,7 @@ ADC_TypeDef* _findBestADCForRegularPin(int pin, ADC_HandleTypeDef adc_handles[])
       break;
     }
     int adcIndex = _adcToIndex((ADC_TypeDef*)PinMap_ADC[j].peripheral);
-    if (adc_handles[adcIndex].Instance != NP) {
+    if (ADC_INSTANCE(&adc_handles[adcIndex]) != NP) {
       // if ADC is already configured, return it
       return (ADC_TypeDef*)PinMap_ADC[j].peripheral;
     }
@@ -100,7 +99,7 @@ ADC_TypeDef* _findBestADCForRegularPin(int pin, ADC_HandleTypeDef adc_handles[])
 // each pin can be connected to multiple ADCs
 // the function will try to find a single ADC that can be used for all pins
 // if not possible it will return nullptr
-ADC_TypeDef* _findBestADCForInjectedPins(int numPins, int pins[], ADC_HandleTypeDef adc_handles[]) {
+ADC_TypeDef* _findBestADCForInjectedPins(int numPins, int pins[], ADC_HANDLE_TYPE adc_handles[]) {
 
   // assuning that there is at most 5 ADCs
   uint8_t pins_at_adc[ADC_COUNT] = {0};
@@ -137,9 +136,9 @@ ADC_TypeDef* _findBestADCForInjectedPins(int numPins, int pins[], ADC_HandleType
     SimpleFOCDebug::print(i+1);
     SimpleFOCDebug::print(" pins: ");
     SimpleFOCDebug::println(pins_at_adc[i]);
-    if (adc_handles[i].Instance != NP) {
+    if (ADC_INSTANCE(&adc_handles[i]) != NP) {
       // check if ADC injeted is already in use
-      if(!LL_ADC_INJ_IsTriggerSourceSWStart(adc_handles[i].Instance)) {
+      if(!LL_ADC_INJ_IsTriggerSourceSWStart(ADC_INSTANCE(&adc_handles[i]))) {
        SimpleFOCDebug::print("STM32-CS: ADC");
         SimpleFOCDebug::print(i+1);
         SimpleFOCDebug::println(" already in use for injected channels!");
@@ -150,8 +149,8 @@ ADC_TypeDef* _findBestADCForInjectedPins(int numPins, int pins[], ADC_HandleType
 
   // now take the first ADC that has all pins connected
   for (int i = 0; i < ADC_COUNT; i++) {
-    if (adc_handles[i].Instance != NP) {
-      if (!LL_ADC_INJ_IsTriggerSourceSWStart(adc_handles[i].Instance))
+    if (ADC_INSTANCE(&adc_handles[i]) != NP) {
+      if (!LL_ADC_INJ_IsTriggerSourceSWStart(ADC_INSTANCE(&adc_handles[i])))
         continue; // ADC already in use for injected
     }
     if (pins_at_adc[i] == no_pins) {
@@ -168,10 +167,10 @@ ADC_TypeDef* _findBestADCForInjectedPins(int numPins, int pins[], ADC_HandleType
   * @param  pin: PinName
   * @retval Valid HAL channel
   */
-uint32_t _getADCChannelFromPinMap(PinName pin)
+ADC_CHANNEL_TYPE _getADCChannelFromPinMap(PinName pin)
 {
   uint32_t function = pinmap_function(pin, PinMap_ADC);
-  uint32_t channel = _getADCChannel(STM_PIN_CHANNEL(function));
+  ADC_CHANNEL_TYPE channel = _getADCChannel(STM_PIN_CHANNEL(function));
   if (!channel)
   {
     _Error_Handler("ADC: Unknown adc channel", (int)(STM_PIN_CHANNEL(function)));
@@ -185,7 +184,7 @@ uint32_t _getADCChannelFromPinMap(PinName pin)
   * @param AdcHandle: ADC_HandleTypeDef a pointer to the ADC handle
   * @retval Valid HAL channel
   */
-uint32_t _getADCChannel(PinName pin, ADC_TypeDef *AdcHandle )
+ADC_CHANNEL_TYPE _getADCChannel(PinName pin, ADC_TypeDef *AdcHandle )
 {  
   if (AdcHandle == NP) {
     return _getADCChannelFromPinMap(pin);
@@ -197,7 +196,11 @@ uint32_t _getADCChannel(PinName pin, ADC_TypeDef *AdcHandle )
     _Error_Handler("ADC: Pin not found in PinMap_ADC", (int)pin);
   }
   // find the channel
-  uint32_t channel = 0;
+  #ifdef USE_HALV2_DRIVER
+  ADC_CHANNEL_TYPE channel = HAL_ADC_CHANNEL_NONE;
+  #else
+  ADC_CHANNEL_TYPE channel = 0;
+  #endif
   for (int i = first_ind; i <= last_ind; i++) {
     if (PinMap_ADC[i].peripheral == AdcHandle) {
       channel =_getADCChannelFromPinMap(PinMap_ADC[i].pin);
@@ -213,11 +216,11 @@ uint32_t _initTimerInterruptDownsampling(Stm32CurrentSenseParams* cs_params, STM
 
   // If DIR is 0 (upcounting), the next event is high-side active (PWM rising edge)
   // If DIR is 1 (downcounting), the next event is low-side active (PWM falling edge)
-  bool next_event_high_side = (cs_params->timer_handle->Instance->CR1 & TIM_CR1_DIR) == 0;
+  bool next_event_high_side = (TIMER_INSTANCE(cs_params->timer_handle)->CR1 & TIM_CR1_DIR) == 0;
   
   // if timer has repetition counter - it will downsample using it
   // and it does not need the software downsample
-  if( IS_TIM_REPETITION_COUNTER_INSTANCE(cs_params->timer_handle->Instance) ){
+  if( IS_TIM_REPETITION_COUNTER_INSTANCE(TIMER_INSTANCE(cs_params->timer_handle)) ){
     // adjust the initial timer state such that the trigger 
     //   - only necessary for the timers that have repetition counters
     //   - basically make sure that the next trigger event is the one that is expected (high-side first then low-side)
@@ -227,14 +230,14 @@ uint32_t _initTimerInterruptDownsampling(Stm32CurrentSenseParams* cs_params, STM
       if(driver_params->timers_handle[i] == NP) continue; // skip if not set
       if(next_event_high_side){
         // Set DIR bit to 0 (downcounting)
-        driver_params->timers_handle[i]->Instance->CR1 |= TIM_CR1_DIR;
+        TIMER_INSTANCE(driver_params->timers_handle[i])->CR1 |= TIM_CR1_DIR;
         // Set CNT to ARR so it starts upcounting from the top
-        driver_params->timers_handle[i]->Instance->CNT =  driver_params->timers_handle[i]->Instance->ARR;
+        TIMER_INSTANCE(driver_params->timers_handle[i])->CNT =  TIMER_INSTANCE(driver_params->timers_handle[i])->ARR;
       }else{
         // Set DIR bit to 0 (upcounting)
-        driver_params->timers_handle[i]->Instance->CR1 &= ~TIM_CR1_DIR;
+        TIMER_INSTANCE(driver_params->timers_handle[i])->CR1 &= ~TIM_CR1_DIR;
         // Set CNT to ARR so it starts upcounting from zero
-        driver_params->timers_handle[i]->Instance->CNT = 0;// driver_params->timers_handle[i]->Instance->ARR;
+        TIMER_INSTANCE(driver_params->timers_handle[i])->CNT = 0;// driver_params->timers_handle[i]->Instance->ARR;
       }
     }
     return 0; // no interrupt is needed, the timer will handle the downsampling
@@ -257,7 +260,7 @@ uint32_t _initTimerInterruptDownsampling(Stm32CurrentSenseParams* cs_params, STM
 }
 
 // returns 0 if no downsampling is needed, 1 if downsampling is needed, 2 if error
-uint8_t _handleInjectedConvCpltCallback(ADC_HandleTypeDef *AdcHandle, Stm32AdcInterruptConfig& adc_interrupt_config, uint32_t adc_val[4]) {
+uint8_t _handleInjectedConvCpltCallback(ADC_HANDLE_TYPE *AdcHandle, Stm32AdcInterruptConfig& adc_interrupt_config, uint32_t adc_val[4]) {
   #ifndef ADC_INJECTED_RANK_1
     return 0; // error: function not available
   #else
@@ -325,7 +328,7 @@ uint32_t last_channel[ADC_COUNT] = {0,0,0,0,0};
  */
 float _readRegularADCVoltage(const int pin){
 
-  ADC_HandleTypeDef* hadc = _get_adc_handles();
+  ADC_HANDLE_TYPE* hadc = _get_adc_handles();
 
   int adc_index = NOT_SET;
   for(int i = 0; i < ADC_COUNT; i++){
@@ -345,8 +348,8 @@ float _readRegularADCVoltage(const int pin){
     } 
     adc_index = _adcToIndex(adc_instance);
 
-    ADC_HandleTypeDef adc_handle = hadc[adc_index];
-    if (adc_handle.Instance == NP) {
+    ADC_HANDLE_TYPE &adc_handle = hadc[adc_index];
+    if (ADC_INSTANCE(&adc_handle) == NP) {
   #ifdef SIMPLEFOC_STM32_DEBUG
       SIMPLEFOC_DEBUG("STM32-CS: WARN: ADC not configured, need to configure it: ADC", adc_index+1);
   #endif
@@ -367,7 +370,9 @@ float _readRegularADCVoltage(const int pin){
   last_channel[adc_index] = channel;
   }
   
-
+  #ifdef USE_HALV2_DRIVER
+  //TODO
+  #else
   ADC_ChannelConfTypeDef sConfig = {0};
   sConfig.Channel = last_channel[adc_index];
   // the shortes possible sampling time 
@@ -425,8 +430,9 @@ float _readRegularADCVoltage(const int pin){
   // Timeout of 1ms should be more than enough
   if (HAL_ADC_PollForConversion(&hadc[adc_index], 1) == HAL_OK) {
     uint32_t raw = HAL_ADC_GetValue(&hadc[adc_index]);
-    return raw * 3.3f / 4096.0f; // assuming 12-bit ADC and 3.3V reference
+    return raw * 3.3f / 4095.0f; // assuming 12-bit ADC and 3.3V reference
   }
+  #endif
   
 #ifdef SIMPLEFOC_STM32_DEBUG
   SIMPLEFOC_DEBUG("STM32-CS: ERR: Regular conversion timeout");

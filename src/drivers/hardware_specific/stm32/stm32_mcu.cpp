@@ -4,7 +4,7 @@
 #include "./stm32_timerutils.h"
 #include "./stm32_searchtimers.h"
 
-#if defined(_STM32_DEF_) || defined(TARGET_STM32H7) // if stm32duino or portenta
+#if defined(ARDUINO_ARCH_STM32) // if stm32duino or portenta
 
 #pragma message("")
 #pragma message("SimpleFOC: compiling for STM32")
@@ -25,7 +25,7 @@
 
 // track timers initialized via SimpleFOC
 int numTimersUsed = 0;
-TIM_HandleTypeDef* timersUsed[SIMPLEFOC_STM32_MAX_TIMERSUSED];
+TIMER_HANDLE_TYPE* timersUsed[SIMPLEFOC_STM32_MAX_TIMERSUSED];
 
 // reserve timers for other uses, so SimpleFOC doesn't use them for motors
 int numTimersReserved = 0;
@@ -52,7 +52,7 @@ bool stm32_isTimerReserved(TIM_TypeDef* timer) {
   }
   return false;
 }
-bool stm32_isTimerUsed(TIM_HandleTypeDef* timer) {
+bool stm32_isTimerUsed(TIMER_HANDLE_TYPE* timer) {
   for (int i=0; i<numTimersUsed; i++) {
     if (timersUsed[i] == timer)
       return true;
@@ -69,15 +69,15 @@ bool stm32_isChannelUsed(PinMap* pin) {
   for (int i=0; i<numMotorsUsed; i++) {
     for (int j=0; j<6; j++) {
       if (motorsUsed[i]->timers_handle[j] == NULL) break;
-      if (motorsUsed[i]->channels[j] == STM_PIN_CHANNEL(pin->function) && ((TIM_TypeDef*)pin->peripheral) == motorsUsed[i]->timers_handle[j]->Instance)
+      if (motorsUsed[i]->channels[j] == STM_PIN_CHANNEL(pin->function) && (reinterpret_cast<TIM_TypeDef*>(pin->peripheral)) == TIMER_INSTANCE(motorsUsed[i]->timers_handle[j]))
         return true;
     }
   }
   return false;
 }
-TIM_HandleTypeDef* stm32_getTimer(PinMap* timer) {
+TIMER_HANDLE_TYPE* stm32_getTimer(PinMap* timer) {
   for (int i=0; i<numTimersUsed; i++) {
-    if (timersUsed[i]->Instance == (TIM_TypeDef*)timer->peripheral)
+    if (TIMER_INSTANCE(timersUsed[i]) == reinterpret_cast<TIM_TypeDef*>(timer->peripheral))
       return timersUsed[i];
   }
   return NULL;
@@ -92,8 +92,8 @@ bool stm32_reserveTimer(TIM_TypeDef* timer) {
 }
 // function to get a timer handle given the pinmap entry of the pin you want to use
 // after calling this function, the timer is marked as used by SimpleFOC
-TIM_HandleTypeDef* stm32_useTimer(PinMap* timer) {
-  TIM_HandleTypeDef* handle = stm32_getTimer(timer);
+TIMER_HANDLE_TYPE* stm32_useTimer(PinMap* timer) {
+  TIMER_HANDLE_TYPE* handle = stm32_getTimer(timer);
   if (handle != NULL) return handle;
   if (numTimersUsed >= SIMPLEFOC_STM32_MAX_TIMERSUSED) {
     SIMPLEFOC_DEBUG("STM32-DRV: ERR: too many timers used");
@@ -103,6 +103,20 @@ TIM_HandleTypeDef* stm32_useTimer(PinMap* timer) {
     SIMPLEFOC_DEBUG("STM32-DRV: ERR: timer reserved");
     return NULL;
   }
+  #ifdef USE_HALV2_DRIVER
+  handle = new hal_tim_handle_t;
+  HAL_TIM_Init(handle, static_cast<hal_tim_t>(reinterpret_cast<uintptr_t>(timer->peripheral)));
+  hal_tim_config_t config = {
+    .prescaler = 0,
+    .counter_mode = HAL_TIM_COUNTER_CENTER_UP,
+    .period = (1<<16)-1,
+    .repetition_counter = 1,
+    .clock_sel = {
+      .clock_source = HAL_TIM_CLK_INTERNAL,
+    },
+  };
+  HAL_TIM_SetConfig(handle, &config);
+  #else
   handle = new TIM_HandleTypeDef();
   handle->Instance = (TIM_TypeDef*)timer->peripheral;
   handle->Channel = HAL_TIM_ACTIVE_CHANNEL_CLEARED;
@@ -129,6 +143,7 @@ TIM_HandleTypeDef* stm32_useTimer(PinMap* timer) {
   enableTimerClock(handle);
   #endif
   HAL_TIM_Base_Init(handle);
+  #endif
   stm32_pauseTimer(handle);
   timersUsed[numTimersUsed++] = handle;
   return handle;
@@ -139,7 +154,7 @@ TIM_HandleTypeDef* stm32_useTimer(PinMap* timer) {
 
 bool _getPwmState(void* params) {
   // assume timers are synchronized and that there's at least one timer
-  bool dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(((STM32DriverParams*)params)->timers_handle[0]);
+  bool dir = LL_TIM_GetDirection(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
   return dir;
 }
 
@@ -173,16 +188,21 @@ void stm32_resume(STM32DriverParams* params) {
 
 
 // init pin pwm
-TIM_HandleTypeDef* stm32_initPinPWM(uint32_t PWM_freq, PinMap* timer, uint32_t mode = TIM_OCMODE_PWM1, uint32_t polarity = TIM_OCPOLARITY_HIGH, uint32_t Npolarity = TIM_OCNPOLARITY_HIGH) {
+#ifdef USE_HALV2_DRIVER
+TIMER_HANDLE_TYPE* stm32_initPinPWM(uint32_t PWM_freq, PinMap* timer, hal_tim_oc_mode_t mode = HAL_TIM_OC_PWM1, hal_tim_oc_polarity_t polarity = HAL_TIM_OC_HIGH, hal_tim_oc_polarity_t Npolarity = HAL_TIM_OC_HIGH) 
+#else
+TIMER_HANDLE_TYPE* stm32_initPinPWM(uint32_t PWM_freq, PinMap* timer, uint32_t mode = TIM_OCMODE_PWM1, uint32_t polarity = TIM_OCPOLARITY_HIGH, uint32_t Npolarity = TIM_OCNPOLARITY_HIGH) 
+#endif
+{
   // sanity check
   if (timer==NULL)
     return NULL;
-  TIM_HandleTypeDef* handle = stm32_getTimer(timer);
+  TIMER_HANDLE_TYPE* handle = stm32_getTimer(timer);
   uint32_t channel = STM_PIN_CHANNEL(timer->function);
   if (handle==NULL) {
     handle = stm32_useTimer(timer);
     #if  defined(SIMPLEFOC_STM32_DEBUG) && !defined(SIMPLEFOC_DISABLE_DEBUG) 
-    SIMPLEFOC_DEBUG("STM32-DRV: Initializing TIM", (int)stm32_getTimerNumber(handle->Instance));
+    SIMPLEFOC_DEBUG("STM32-DRV: Initializing TIM", (int)stm32_getTimerNumber(TIMER_INSTANCE(handle)));
     #endif
     uint32_t arr = stm32_setClockAndARR(handle, PWM_freq);
     if (arr<SIMPLEFOC_STM32_MIN_RESOLUTION) {
@@ -194,6 +214,23 @@ TIM_HandleTypeDef* stm32_initPinPWM(uint32_t PWM_freq, PinMap* timer, uint32_t m
       #endif
     }
   }
+  #ifdef USE_HALV2_DRIVER
+  bool n_channel = STM_PIN_INVERTED(timer->function);
+  hal_tim_oc_channel_config_t ch_config = {
+    .polarity = n_channel ? Npolarity : polarity,
+    .idle_state = HAL_TIM_OC_IDLE_STATE_RESET,
+    .override_state = HAL_TIM_OC_OVERRIDE_RESET,
+    .break_mode = HAL_TIM_OC_BREAKMODE_IMMEDIATE,
+  };
+  hal_tim_channel_t hal_channel = static_cast<hal_tim_channel_t>(channel + (n_channel ? HAL_TIM_CHANNEL_1N : 0));
+  HAL_TIM_OC_GetConfigChannel(handle, hal_channel, &ch_config);
+  hal_tim_oc_compare_unit_config_t oc_config = {
+    .mode = mode,
+    .pulse = 0,
+  };
+  hal_tim_oc_compare_unit_t hal_unit = static_cast<hal_tim_oc_compare_unit_t>(channel);
+  HAL_TIM_OC_SetConfigCompareUnit(handle, hal_unit, &oc_config);
+  #else
   TIM_OC_InitTypeDef channelOC;
   channelOC.OCMode = mode;
   channelOC.Pulse = 0; //__HAL_TIM_GET_COMPARE(handle, channel);
@@ -209,14 +246,15 @@ TIM_HandleTypeDef* stm32_initPinPWM(uint32_t PWM_freq, PinMap* timer, uint32_t m
 #endif
 #endif
   HAL_TIM_PWM_ConfigChannel(handle, &channelOC, stm32_getHALChannel(channel));
+  #endif
   pinmap_pinout(timer->pin, PinMap_TIM);
-  LL_TIM_CC_EnableChannel(handle->Instance, stm32_getLLChannel(timer));
-  if (IS_TIM_BREAK_INSTANCE(handle->Instance)) {
-    __HAL_TIM_MOE_ENABLE(handle);
+  LL_TIM_CC_EnableChannel(TIMER_INSTANCE(handle), stm32_getLLChannel(timer));
+  if (IS_TIM_BREAK_INSTANCE(TIMER_INSTANCE(handle))) {
+    LL_TIM_EnableAllOutputs(TIMER_INSTANCE(handle));
   }
   #if defined(SIMPLEFOC_STM32_DEBUG) && !defined(SIMPLEFOC_DISABLE_DEBUG) 
     SimpleFOCDebug::print("STM32-DRV: Configured TIM");
-    SimpleFOCDebug::print((int)stm32_getTimerNumber(handle->Instance));
+    SimpleFOCDebug::print((int)stm32_getTimerNumber(TIMER_INSTANCE(handle)));
     SIMPLEFOC_DEBUG("_CH", (int)channel);
   #endif
   return handle;
@@ -225,7 +263,15 @@ TIM_HandleTypeDef* stm32_initPinPWM(uint32_t PWM_freq, PinMap* timer, uint32_t m
 
 
 
-
+#ifdef USE_HALV2_DRIVER
+#define OCPOL HAL_TIM_OC_HIGH : HAL_TIM_OC_LOW
+#define PWM1 HAL_TIM_OC_PWM1
+#define PWM2 HAL_TIM_OC_PWM2
+#else
+#define OCPOL TIM_OCPOLARITY_HIGH : TIM_OCPOLARITY_LOW
+#define PWM1 TIM_OCMODE_PWM1
+#define PWM2 TIM_OCMODE_PWM2
+#endif
 
 /**
 0110: PWM mode 1 - In upcounting, channel 1 is active as long as TIMx_CNT<TIMx_CCR1
@@ -236,20 +282,24 @@ TIMx_CNT<TIMx_CCR1 else active. In downcounting, channel 1 is active as long as
 TIMx_CNT>TIMx_CCR1 else inactive
  */
 // init high side pin
-TIM_HandleTypeDef* _stm32_initPinPWMHigh(uint32_t PWM_freq, PinMap* timer) {
-  uint32_t polarity = SIMPLEFOC_PWM_HIGHSIDE_ACTIVE_HIGH ? TIM_OCPOLARITY_HIGH : TIM_OCPOLARITY_LOW ;
-  TIM_HandleTypeDef* handle = stm32_initPinPWM(PWM_freq, timer, TIM_OCMODE_PWM1, polarity);
-  LL_TIM_OC_EnablePreload(handle->Instance, stm32_getLLChannel(timer));
+TIMER_HANDLE_TYPE* _stm32_initPinPWMHigh(uint32_t PWM_freq, PinMap* timer) {
+  auto polarity = SIMPLEFOC_PWM_HIGHSIDE_ACTIVE_HIGH ? OCPOL ;
+  TIMER_HANDLE_TYPE* handle = stm32_initPinPWM(PWM_freq, timer, PWM1, polarity);
+  LL_TIM_OC_EnablePreload(TIMER_INSTANCE(handle), stm32_getLLChannel(timer));
   return handle;
 }
 
 // init low side pin
-TIM_HandleTypeDef* _stm32_initPinPWMLow(uint32_t PWM_freq, PinMap* timer) {
-  uint32_t polarity = SIMPLEFOC_PWM_LOWSIDE_ACTIVE_HIGH ? TIM_OCPOLARITY_HIGH : TIM_OCPOLARITY_LOW;
-  TIM_HandleTypeDef* handle = stm32_initPinPWM(PWM_freq, timer, TIM_OCMODE_PWM2, polarity);
-  LL_TIM_OC_EnablePreload(handle->Instance, stm32_getLLChannel(timer));
+TIMER_HANDLE_TYPE* _stm32_initPinPWMLow(uint32_t PWM_freq, PinMap* timer) {
+  auto polarity = SIMPLEFOC_PWM_LOWSIDE_ACTIVE_HIGH ? OCPOL;
+  TIMER_HANDLE_TYPE* handle = stm32_initPinPWM(PWM_freq, timer, PWM2, polarity);
+  LL_TIM_OC_EnablePreload(TIMER_INSTANCE(handle), stm32_getLLChannel(timer));
   return handle;
 }
+
+#undef OCPOL
+#undef PWM1
+#undef PWM2
 
 
 
@@ -280,14 +330,14 @@ TIM_HandleTypeDef* _stm32_initPinPWMLow(uint32_t PWM_freq, PinMap* timer) {
 
 
 // Basically a sanity check to avoid complex scenarios where the user is using the same timers for multiple purposes.
-int stm32_checkTimerFrequency(long pwm_frequency, TIM_HandleTypeDef *timers[], uint8_t num_timers){
-  TIM_HandleTypeDef* timers_distinct[6];
+int stm32_checkTimerFrequency(long pwm_frequency, TIMER_HANDLE_TYPE *timers[], uint8_t num_timers){
+  TIMER_HANDLE_TYPE* timers_distinct[6];
   uint8_t timer_num = stm32_distinctTimers(timers, num_timers, timers_distinct);
   float common_pwm_freq = 0.0f;
   for (int i=0; i<timer_num; i++) {
     uint32_t freq = stm32_getTimerClockFreq(timers_distinct[i]);
-    uint32_t arr = timers_distinct[i]->Instance->ARR;
-    uint32_t prescaler = timers_distinct[i]->Instance->PSC;
+    uint32_t arr = TIMER_INSTANCE(timers_distinct[i])->ARR;
+    uint32_t prescaler = TIMER_INSTANCE(timers_distinct[i])->PSC;
     float pwm_freq = (float)freq/(prescaler+1.0f)/(arr+1.0f)/2.0f;
     if (i==0) {
       common_pwm_freq = pwm_freq;
@@ -295,11 +345,11 @@ int stm32_checkTimerFrequency(long pwm_frequency, TIM_HandleTypeDef *timers[], u
       if (pwm_freq != common_pwm_freq) {
         #if  defined(SIMPLEFOC_STM32_DEBUG) && !defined(SIMPLEFOC_DISABLE_DEBUG) 
         SimpleFOCDebug::print("STM32-DRV: ERR: Timer frequency different: TIM");
-        SimpleFOCDebug::print(stm32_getTimerNumber(timers_distinct[0]->Instance));
+        SimpleFOCDebug::print(stm32_getTimerNumber(TIMER_INSTANCE(timers_distinct[0])));
         SimpleFOCDebug::print(" freq: ");
         SimpleFOCDebug::print(common_pwm_freq);
         SimpleFOCDebug::print(" != TIM");
-        SimpleFOCDebug::print(stm32_getTimerNumber(timers_distinct[i]->Instance));
+        SimpleFOCDebug::print(stm32_getTimerNumber(TIMER_INSTANCE(timers_distinct[i])));
         SimpleFOCDebug::println(" freq: ", pwm_freq);
         #endif
         return -1;
@@ -332,14 +382,40 @@ STM32DriverParams* _stm32_initHardware6PWMPair(long PWM_freq, float dead_zone, P
   if (channel1!=channel2 || pinH->peripheral!=pinL->peripheral)
     return (STM32DriverParams*)SIMPLEFOC_DRIVER_INIT_FAILED;
 
+  #ifdef USE_HALV2_DRIVER
+  hal_tim_oc_polarity_t polarity = SIMPLEFOC_PWM_HIGHSIDE_ACTIVE_HIGH ? HAL_TIM_OC_HIGH : HAL_TIM_OC_LOW;
+  hal_tim_oc_polarity_t Npolarity = SIMPLEFOC_PWM_LOWSIDE_ACTIVE_HIGH ? HAL_TIM_OC_HIGH : HAL_TIM_OC_LOW;
+  TIMER_HANDLE_TYPE* handle = stm32_initPinPWM(PWM_freq, pinH, HAL_TIM_OC_PWM1, polarity, Npolarity);
+  #else
   uint32_t polarity = SIMPLEFOC_PWM_HIGHSIDE_ACTIVE_HIGH ? TIM_OCPOLARITY_HIGH : TIM_OCPOLARITY_LOW;
   uint32_t Npolarity = SIMPLEFOC_PWM_LOWSIDE_ACTIVE_HIGH ? TIM_OCNPOLARITY_HIGH : TIM_OCNPOLARITY_LOW;
-  TIM_HandleTypeDef* handle = stm32_initPinPWM(PWM_freq, pinH, TIM_OCMODE_PWM1, polarity, Npolarity);
-  pinmap_pinout(pinL->pin, PinMap_TIM); // also init the low side pin
+  TIMER_HANDLE_TYPE* handle = stm32_initPinPWM(PWM_freq, pinH, TIM_OCMODE_PWM1, polarity, Npolarity);
+  #endif
+
+  // also init the low side pin
+  #ifdef USE_HALV2_DRIVER
+  {
+    bool n_channel = STM_PIN_INVERTED(pinL->function);
+    hal_tim_oc_channel_config_t ch_config = {
+      .polarity = n_channel ? Npolarity : polarity,
+      .idle_state = HAL_TIM_OC_IDLE_STATE_RESET,
+      .override_state = HAL_TIM_OC_OVERRIDE_RESET,
+      .break_mode = HAL_TIM_OC_BREAKMODE_IMMEDIATE,
+    };
+    hal_tim_channel_t hal_channel = static_cast<hal_tim_channel_t>(channel2 + (n_channel ? HAL_TIM_CHANNEL_1N : 0));
+    HAL_TIM_OC_GetConfigChannel(handle, hal_channel, &ch_config);
+  }
+  #endif
+  pinmap_pinout(pinL->pin, PinMap_TIM);
+
 
   // dead time is set in nanoseconds
   uint32_t dead_time_ns = (float)(1e9f/PWM_freq)*dead_zone;
-  uint32_t dead_time = __LL_TIM_CALC_DEADTIME(stm32_getTimerClockFreq(handle), LL_TIM_GetClockDivision(handle->Instance), dead_time_ns);
+  #ifdef USE_HALV2_DRIVER
+  uint32_t dead_time = LL_TIM_CALC_DEADTIME(stm32_getTimerClockFreq(handle), LL_TIM_GetClockDivision(TIMER_INSTANCE(handle)), dead_time_ns);
+  #else
+  uint32_t dead_time = __LL_TIM_CALC_DEADTIME(stm32_getTimerClockFreq(handle), LL_TIM_GetClockDivision(TIMER_INSTANCE(handle)), dead_time_ns);
+  #endif
   if (dead_time>255) dead_time = 255;
   if (dead_time==0 && dead_zone>0) {
     dead_time = 255; // LL_TIM_CALC_DEADTIME returns 0 if dead_time_ns is too large
@@ -349,9 +425,9 @@ STM32DriverParams* _stm32_initHardware6PWMPair(long PWM_freq, float dead_zone, P
   // TODO why init this here, and not generally in the initPWM or init timer functions?
   //      or, since its a rather specialized and hardware-speific setting, why not move it to
   //      another function?
-  LL_TIM_SetOffStates(handle->Instance, LL_TIM_OSSI_DISABLE, LL_TIM_OSSR_ENABLE);
-  LL_TIM_OC_SetDeadTime(handle->Instance, dead_time); // deadtime is non linear!
-  LL_TIM_CC_EnableChannel(handle->Instance, stm32_getLLChannel(pinH) | stm32_getLLChannel(pinL));
+  LL_TIM_SetOffStates(TIMER_INSTANCE(handle), LL_TIM_OSSI_DISABLE, LL_TIM_OSSR_ENABLE);
+  LL_TIM_OC_SetDeadTime(TIMER_INSTANCE(handle), dead_time); // deadtime is non linear!
+  LL_TIM_CC_EnableChannel(TIMER_INSTANCE(handle), stm32_getLLChannel(pinH) | stm32_getLLChannel(pinL));
   params->timers_handle[paramsPos] = handle;
   params->timers_handle[paramsPos+1] = handle;
   params->channels[paramsPos] = channel1;
@@ -387,8 +463,11 @@ STM32DriverParams* _stm32_initHardware6PWMInterface(long PWM_freq, float dead_zo
 
 
 
-
-
+#ifdef USE_HALV2_DRIVER
+  #define InitPinParam HAL_TIM_OC_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?HAL_TIM_OC_HIGH:HAL_TIM_OC_LOW
+#else
+  #define InitPinParam TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW
+#endif
 
 void* _configure1PWM(long pwm_frequency, const int pinA) {
   if (numMotorsUsed+1 > SIMPLEFOC_STM32_MAX_MOTORSUSED) {
@@ -403,7 +482,7 @@ void* _configure1PWM(long pwm_frequency, const int pinA) {
   if (stm32_findBestTimerCombination(1, pins, pinTimers)<0)
     return (STM32DriverParams*)SIMPLEFOC_DRIVER_INIT_FAILED;
 
-  TIM_HandleTypeDef* HT1 = stm32_initPinPWM(pwm_frequency, pinTimers[0], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
+  TIMER_HANDLE_TYPE* HT1 = stm32_initPinPWM(pwm_frequency, pinTimers[0], InitPinParam);
   uint32_t channel1 = STM_PIN_CHANNEL(pinTimers[0]->function);
 
   STM32DriverParams* params = new STM32DriverParams {
@@ -440,9 +519,9 @@ void* _configure2PWM(long pwm_frequency, const int pinA, const int pinB) {
   if (stm32_findBestTimerCombination(2, pins, pinTimers)<0)
     return (STM32DriverParams*)SIMPLEFOC_DRIVER_INIT_FAILED;
 
-  TIM_HandleTypeDef* HT1 = stm32_initPinPWM(pwm_frequency, pinTimers[0], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
-  TIM_HandleTypeDef* HT2 = stm32_initPinPWM(pwm_frequency, pinTimers[1], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
-  TIM_HandleTypeDef *timers[2] = {HT1, HT2};
+  TIMER_HANDLE_TYPE* HT1 = stm32_initPinPWM(pwm_frequency, pinTimers[0], InitPinParam);
+  TIMER_HANDLE_TYPE* HT2 = stm32_initPinPWM(pwm_frequency, pinTimers[1], InitPinParam);
+  TIMER_HANDLE_TYPE *timers[2] = {HT1, HT2};
   stm32_checkTimerFrequency(pwm_frequency, timers, 2); 
   
   uint32_t channel1 = STM_PIN_CHANNEL(pinTimers[0]->function);
@@ -480,11 +559,11 @@ void* _configure3PWM(long pwm_frequency,const int pinA, const int pinB, const in
   if (stm32_findBestTimerCombination(3, pins, pinTimers)<0)
     return (STM32DriverParams*)SIMPLEFOC_DRIVER_INIT_FAILED;
 
-  TIM_HandleTypeDef* HT1 = stm32_initPinPWM(pwm_frequency, pinTimers[0], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
-  TIM_HandleTypeDef* HT2 = stm32_initPinPWM(pwm_frequency, pinTimers[1], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
-  TIM_HandleTypeDef* HT3 = stm32_initPinPWM(pwm_frequency, pinTimers[2], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
+  TIMER_HANDLE_TYPE* HT1 = stm32_initPinPWM(pwm_frequency, pinTimers[0], InitPinParam);
+  TIMER_HANDLE_TYPE* HT2 = stm32_initPinPWM(pwm_frequency, pinTimers[1], InitPinParam);
+  TIMER_HANDLE_TYPE* HT3 = stm32_initPinPWM(pwm_frequency, pinTimers[2], InitPinParam);
 
-  TIM_HandleTypeDef *timers[3] = {HT1, HT2, HT3};
+  TIMER_HANDLE_TYPE *timers[3] = {HT1, HT2, HT3};
   stm32_checkTimerFrequency(pwm_frequency, timers, 3);
 
   uint32_t channel1 = STM_PIN_CHANNEL(pinTimers[0]->function);
@@ -521,11 +600,11 @@ void* _configure4PWM(long pwm_frequency,const int pinA, const int pinB, const in
   if (stm32_findBestTimerCombination(4, pins, pinTimers)<0)
     return (STM32DriverParams*)SIMPLEFOC_DRIVER_INIT_FAILED;
 
-  TIM_HandleTypeDef* HT1 = stm32_initPinPWM(pwm_frequency, pinTimers[0], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
-  TIM_HandleTypeDef* HT2 = stm32_initPinPWM(pwm_frequency, pinTimers[1], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
-  TIM_HandleTypeDef* HT3 = stm32_initPinPWM(pwm_frequency, pinTimers[2], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
-  TIM_HandleTypeDef* HT4 = stm32_initPinPWM(pwm_frequency, pinTimers[3], TIM_OCMODE_PWM1, (SIMPLEFOC_PWM_ACTIVE_HIGH)?TIM_OCPOLARITY_HIGH:TIM_OCPOLARITY_LOW);
-  TIM_HandleTypeDef *timers[4] = {HT1, HT2, HT3, HT4};
+  TIMER_HANDLE_TYPE* HT1 = stm32_initPinPWM(pwm_frequency, pinTimers[0], InitPinParam);
+  TIMER_HANDLE_TYPE* HT2 = stm32_initPinPWM(pwm_frequency, pinTimers[1], InitPinParam);
+  TIMER_HANDLE_TYPE* HT3 = stm32_initPinPWM(pwm_frequency, pinTimers[2], InitPinParam);
+  TIMER_HANDLE_TYPE* HT4 = stm32_initPinPWM(pwm_frequency, pinTimers[3], InitPinParam);
+  TIMER_HANDLE_TYPE *timers[4] = {HT1, HT2, HT3, HT4};
   stm32_checkTimerFrequency(pwm_frequency, timers, 4);
 
   uint32_t channel1 = STM_PIN_CHANNEL(pinTimers[0]->function);
@@ -552,7 +631,7 @@ void* _configure4PWM(long pwm_frequency,const int pinA, const int pinB, const in
 // - DC motor - 1PWM setting
 // - hardware specific
 void _writeDutyCycle1PWM(float dc_a, void* params){
-  uint32_t duty = dc_a*(((STM32DriverParams*)params)->timers_handle[0]->Instance->ARR+1);
+  uint32_t duty = dc_a*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0])->ARR+1);
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[0], ((STM32DriverParams*)params)->channels[0], duty);
 }
 
@@ -562,26 +641,26 @@ void _writeDutyCycle1PWM(float dc_a, void* params){
 // - Stepper motor - 2PWM setting
 //- hardware specific
 void _writeDutyCycle2PWM(float dc_a,  float dc_b, void* params){
-  uint32_t duty1 = dc_a*(((STM32DriverParams*)params)->timers_handle[0]->Instance->ARR+1);
-  uint32_t duty2 = dc_b*(((STM32DriverParams*)params)->timers_handle[1]->Instance->ARR+1);
-  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_DisableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance);
+  uint32_t duty1 = dc_a*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0])->ARR+1);
+  uint32_t duty2 = dc_b*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[1])->ARR+1);
+  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_DisableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[0], ((STM32DriverParams*)params)->channels[0], duty1);
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[1], ((STM32DriverParams*)params)->channels[1], duty2);
-  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_EnableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance);
+  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_EnableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
 }
 
 // function setting the pwm duty cycle to the hardware
 // - BLDC motor - 3PWM setting
 //- hardware specific
 void _writeDutyCycle3PWM(float dc_a,  float dc_b, float dc_c, void* params){
-  uint32_t duty1 = dc_a*(((STM32DriverParams*)params)->timers_handle[0]->Instance->ARR+1);
-  uint32_t duty2 = dc_b*(((STM32DriverParams*)params)->timers_handle[1]->Instance->ARR+1);
-  uint32_t duty3 = dc_c*(((STM32DriverParams*)params)->timers_handle[2]->Instance->ARR+1);
-  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_DisableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance);
+  uint32_t duty1 = dc_a*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0])->ARR+1);
+  uint32_t duty2 = dc_b*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[1])->ARR+1);
+  uint32_t duty3 = dc_c*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[2])->ARR+1);
+  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_DisableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[0], ((STM32DriverParams*)params)->channels[0], duty1);
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[1], ((STM32DriverParams*)params)->channels[1], duty2);
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[2], ((STM32DriverParams*)params)->channels[2], duty3);
-  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_EnableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance);
+  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_EnableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
 }
 
 
@@ -589,16 +668,16 @@ void _writeDutyCycle3PWM(float dc_a,  float dc_b, float dc_c, void* params){
 // - Stepper motor - 4PWM setting
 //- hardware specific
 void _writeDutyCycle4PWM(float dc_1a,  float dc_1b, float dc_2a, float dc_2b, void* params){
-  uint32_t duty1 = dc_1a*(((STM32DriverParams*)params)->timers_handle[0]->Instance->ARR+1);
-  uint32_t duty2 = dc_1b*(((STM32DriverParams*)params)->timers_handle[1]->Instance->ARR+1);
-  uint32_t duty3 = dc_2a*(((STM32DriverParams*)params)->timers_handle[2]->Instance->ARR+1);
-  uint32_t duty4 = dc_2b*(((STM32DriverParams*)params)->timers_handle[3]->Instance->ARR+1);
-  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_DisableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance);
+  uint32_t duty1 = dc_1a*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0])->ARR+1);
+  uint32_t duty2 = dc_1b*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[1])->ARR+1);
+  uint32_t duty3 = dc_2a*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[2])->ARR+1);
+  uint32_t duty4 = dc_2b*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[3])->ARR+1);
+  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_DisableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[0], ((STM32DriverParams*)params)->channels[0], duty1);
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[1], ((STM32DriverParams*)params)->channels[1], duty2);
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[2], ((STM32DriverParams*)params)->channels[2], duty3);
   stm32_setPwm(((STM32DriverParams*)params)->timers_handle[3], ((STM32DriverParams*)params)->channels[3], duty4);
-  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_EnableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance);
+  if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_EnableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
 }
 
 
@@ -626,13 +705,13 @@ void* _configure6PWM(long pwm_frequency, float dead_zone, const int pinA_h, cons
   else if (score<10)  // hardware pwm
     params = _stm32_initHardware6PWMInterface(pwm_frequency, dead_zone, pinTimers[0], pinTimers[1], pinTimers[2], pinTimers[3], pinTimers[4], pinTimers[5]);
   else {  // software pwm
-    TIM_HandleTypeDef* HT1 = _stm32_initPinPWMHigh(pwm_frequency, pinTimers[0]);
-    TIM_HandleTypeDef* HT2 = _stm32_initPinPWMLow(pwm_frequency, pinTimers[1]);
-    TIM_HandleTypeDef* HT3 = _stm32_initPinPWMHigh(pwm_frequency, pinTimers[2]);
-    TIM_HandleTypeDef* HT4 = _stm32_initPinPWMLow(pwm_frequency, pinTimers[3]);
-    TIM_HandleTypeDef* HT5 = _stm32_initPinPWMHigh(pwm_frequency, pinTimers[4]);
-    TIM_HandleTypeDef* HT6 = _stm32_initPinPWMLow(pwm_frequency, pinTimers[5]);
-    TIM_HandleTypeDef *timers[6] = {HT1, HT2, HT3, HT4, HT5, HT6};
+    TIMER_HANDLE_TYPE* HT1 = _stm32_initPinPWMHigh(pwm_frequency, pinTimers[0]);
+    TIMER_HANDLE_TYPE* HT2 = _stm32_initPinPWMLow(pwm_frequency, pinTimers[1]);
+    TIMER_HANDLE_TYPE* HT3 = _stm32_initPinPWMHigh(pwm_frequency, pinTimers[2]);
+    TIMER_HANDLE_TYPE* HT4 = _stm32_initPinPWMLow(pwm_frequency, pinTimers[3]);
+    TIMER_HANDLE_TYPE* HT5 = _stm32_initPinPWMHigh(pwm_frequency, pinTimers[4]);
+    TIMER_HANDLE_TYPE* HT6 = _stm32_initPinPWMLow(pwm_frequency, pinTimers[5]);
+    TIMER_HANDLE_TYPE *timers[6] = {HT1, HT2, HT3, HT4, HT5, HT6};
     stm32_checkTimerFrequency(pwm_frequency, timers, 6); 
     uint32_t channel1 = STM_PIN_CHANNEL(pinTimers[0]->function);
     uint32_t channel2 = STM_PIN_CHANNEL(pinTimers[1]->function);
@@ -660,7 +739,7 @@ void* _configure6PWM(long pwm_frequency, float dead_zone, const int pinA_h, cons
 
 
 
-void _setSinglePhaseState(PhaseState state, TIM_HandleTypeDef *HT, int llchannel_hi, int llchannel_lo) {
+void _setSinglePhaseState(PhaseState state, TIMER_HANDLE_TYPE *HT, int llchannel_hi, int llchannel_lo) {
   switch (state) {
     case PhaseState::PHASE_OFF:
       stm32_pauseChannel(HT, llchannel_hi | llchannel_lo);
@@ -690,31 +769,31 @@ void _writeDutyCycle6PWM(float dc_a, float dc_b, float dc_c, PhaseState* phase_s
   uint32_t duty3;
   switch(((STM32DriverParams*)params)->interface_type){
     case _HARDWARE_6PWM:
-      duty1 = dc_a*(((STM32DriverParams*)params)->timers_handle[0]->Instance->ARR+1);
-      duty2 = dc_b*(((STM32DriverParams*)params)->timers_handle[2]->Instance->ARR+1);
-      duty3 = dc_c*(((STM32DriverParams*)params)->timers_handle[4]->Instance->ARR+1);
+      duty1 = dc_a*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0])->ARR+1);
+      duty2 = dc_b*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[2])->ARR+1);
+      duty3 = dc_c*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[4])->ARR+1);
       if(phase_state[0] == PhaseState::PHASE_OFF) duty1 = 0;
       if(phase_state[1] == PhaseState::PHASE_OFF) duty2 = 0;
       if(phase_state[2] == PhaseState::PHASE_OFF) duty3 = 0;
-      if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_DisableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance);
+      if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_DisableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
       _setSinglePhaseState(phase_state[0], ((STM32DriverParams*)params)->timers_handle[0], ((STM32DriverParams*)params)->llchannels[0], ((STM32DriverParams*)params)->llchannels[1]);
       stm32_setPwm(((STM32DriverParams*)params)->timers_handle[0], ((STM32DriverParams*)params)->channels[0], duty1);
       _setSinglePhaseState(phase_state[1], ((STM32DriverParams*)params)->timers_handle[2], ((STM32DriverParams*)params)->llchannels[2], ((STM32DriverParams*)params)->llchannels[3]);
       stm32_setPwm(((STM32DriverParams*)params)->timers_handle[2], ((STM32DriverParams*)params)->channels[2], duty2);
       _setSinglePhaseState(phase_state[2], ((STM32DriverParams*)params)->timers_handle[4], ((STM32DriverParams*)params)->llchannels[4], ((STM32DriverParams*)params)->llchannels[5]);
       stm32_setPwm(((STM32DriverParams*)params)->timers_handle[4], ((STM32DriverParams*)params)->channels[4], duty3);
-      if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_EnableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance);
+      if (((STM32DriverParams*)params)->num_timers == 1) LL_TIM_EnableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
       break;
     case _SOFTWARE_6PWM:
       float dead_zone = ((STM32DriverParams*)params)->dead_zone  / 2.0f;
-      duty1 = _constrain(dc_a - dead_zone, 0.0f, 1.0f)*(((STM32DriverParams*)params)->timers_handle[0]->Instance->ARR+1);
-      duty2 = _constrain(dc_b - dead_zone, 0.0f, 1.0f)*(((STM32DriverParams*)params)->timers_handle[2]->Instance->ARR+1);
-      duty3 = _constrain(dc_c - dead_zone, 0.0f, 1.0f)*(((STM32DriverParams*)params)->timers_handle[4]->Instance->ARR+1);
-      uint32_t duty1N = _constrain(dc_a + dead_zone, 0.0f, 1.0f)*(((STM32DriverParams*)params)->timers_handle[1]->Instance->ARR+1);
-      uint32_t duty2N = _constrain(dc_b + dead_zone, 0.0f, 1.0f)*(((STM32DriverParams*)params)->timers_handle[3]->Instance->ARR+1);
-      uint32_t duty3N = _constrain(dc_c + dead_zone, 0.0f, 1.0f)*(((STM32DriverParams*)params)->timers_handle[5]->Instance->ARR+1);
+      duty1 = _constrain(dc_a - dead_zone, 0.0f, 1.0f)*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0])->ARR+1);
+      duty2 = _constrain(dc_b - dead_zone, 0.0f, 1.0f)*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[2])->ARR+1);
+      duty3 = _constrain(dc_c - dead_zone, 0.0f, 1.0f)*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[4])->ARR+1);
+      uint32_t duty1N = _constrain(dc_a + dead_zone, 0.0f, 1.0f)*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[1])->ARR+1);
+      uint32_t duty2N = _constrain(dc_b + dead_zone, 0.0f, 1.0f)*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[3])->ARR+1);
+      uint32_t duty3N = _constrain(dc_c + dead_zone, 0.0f, 1.0f)*(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[5])->ARR+1);
 
-      LL_TIM_DisableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance); // timers for high and low side assumed to be the same timer
+      LL_TIM_DisableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0])); // timers for high and low side assumed to be the same timer
       if (phase_state[0] == PhaseState::PHASE_ON || phase_state[0] == PhaseState::PHASE_HI)
         stm32_setPwm(((STM32DriverParams*)params)->timers_handle[0], ((STM32DriverParams*)params)->channels[0], duty1);
       else
@@ -724,7 +803,7 @@ void _writeDutyCycle6PWM(float dc_a, float dc_b, float dc_c, PhaseState* phase_s
       else
         stm32_setPwm(((STM32DriverParams*)params)->timers_handle[1], ((STM32DriverParams*)params)->channels[1], 0);
 
-      LL_TIM_DisableUpdateEvent(((STM32DriverParams*)params)->timers_handle[2]->Instance); // timers for high and low side assumed to be the same timer
+      LL_TIM_DisableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[2])); // timers for high and low side assumed to be the same timer
       if (phase_state[1] == PhaseState::PHASE_ON || phase_state[1] == PhaseState::PHASE_HI)
         stm32_setPwm(((STM32DriverParams*)params)->timers_handle[2], ((STM32DriverParams*)params)->channels[2], duty2);
       else
@@ -734,7 +813,7 @@ void _writeDutyCycle6PWM(float dc_a, float dc_b, float dc_c, PhaseState* phase_s
       else
         stm32_setPwm(((STM32DriverParams*)params)->timers_handle[3], ((STM32DriverParams*)params)->channels[3], 0);
 
-      LL_TIM_DisableUpdateEvent(((STM32DriverParams*)params)->timers_handle[4]->Instance); // timers for high and low side assumed to be the same timer
+      LL_TIM_DisableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[4])); // timers for high and low side assumed to be the same timer
       if (phase_state[2] == PhaseState::PHASE_ON || phase_state[2] == PhaseState::PHASE_HI)
         stm32_setPwm(((STM32DriverParams*)params)->timers_handle[4], ((STM32DriverParams*)params)->channels[4], duty3);
       else
@@ -744,9 +823,9 @@ void _writeDutyCycle6PWM(float dc_a, float dc_b, float dc_c, PhaseState* phase_s
       else
         stm32_setPwm(((STM32DriverParams*)params)->timers_handle[5], ((STM32DriverParams*)params)->channels[5], 0);
       
-      LL_TIM_EnableUpdateEvent(((STM32DriverParams*)params)->timers_handle[0]->Instance);
-      LL_TIM_EnableUpdateEvent(((STM32DriverParams*)params)->timers_handle[2]->Instance);
-      LL_TIM_EnableUpdateEvent(((STM32DriverParams*)params)->timers_handle[4]->Instance);
+      LL_TIM_EnableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[0]));
+      LL_TIM_EnableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[2]));
+      LL_TIM_EnableUpdateEvent(TIMER_INSTANCE(((STM32DriverParams*)params)->timers_handle[4]));
       break;
   }
 }

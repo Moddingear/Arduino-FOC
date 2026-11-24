@@ -6,7 +6,10 @@
 #include "../../../drivers/hardware_specific/stm32/stm32_mcu.h"
 #include "../../../drivers/hardware_specific/stm32/stm32_timerutils.h"
 
-#if defined(_STM32_DEF_) 
+#if defined(ARDUINO_ARCH_STM32)
+
+#include "stm32_handle_types.h"
+#include "../../../drivers/hardware_specific/stm32/stm32_handle_types.h"
 
 // generic implementation of the hardware specific structure
 // containing all the necessary current sense parameters
@@ -15,8 +18,8 @@
 typedef struct Stm32CurrentSenseParams {
   int pins[3] = {(int)NOT_SET};
   float adc_voltage_conv;
-  ADC_HandleTypeDef* adc_handle = NP;
-  TIM_HandleTypeDef* timer_handle = NP;
+  ADC_HANDLE_TYPE* adc_handle = NP;
+  TIMER_HANDLE_TYPE* timer_handle = NP;
 } Stm32CurrentSenseParams;
 
 

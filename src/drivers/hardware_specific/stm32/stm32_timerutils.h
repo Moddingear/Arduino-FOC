@@ -3,35 +3,14 @@
 
 #include "./stm32_mcu.h"
 
-#if defined(_STM32_DEF_) || defined(TARGET_STM32H7)
-
-
-void stm32_pauseTimer(TIM_HandleTypeDef* handle);
-void stm32_resumeTimer(TIM_HandleTypeDef* handle);
-void stm32_refreshTimer(TIM_HandleTypeDef* handle);
-void stm32_pauseChannel(TIM_HandleTypeDef* handle, uint32_t llchannels);
-void stm32_resumeChannel(TIM_HandleTypeDef* handle, uint32_t llchannels);
-uint32_t stm32_setClockAndARR(TIM_HandleTypeDef* handle, uint32_t PWM_freq);
-uint8_t stm32_countTimers(TIM_HandleTypeDef *timers[], uint8_t num_timers);
-uint8_t stm32_distinctTimers(TIM_HandleTypeDef* timers_in[], uint8_t num_timers, TIM_HandleTypeDef* timers_out[]);
-uint32_t stm32_getHALChannel(uint32_t channel);
-uint32_t stm32_getLLChannel(PinMap* timer);
-int stm32_getInternalSourceTrigger(TIM_HandleTypeDef* master, TIM_HandleTypeDef* slave);
-TIM_HandleTypeDef* stm32_alignTimers(TIM_HandleTypeDef *timers_in[], uint8_t num_timers_in);
-void stm32_setPwm(TIM_HandleTypeDef *timer, uint32_t channel, uint32_t value);
-uint32_t stm32_getTimerClockFreq(TIM_HandleTypeDef* handle);
-
-#if defined(__MBED__) // if portenta and other mbed boards
-
-void enableTimerClock(TIM_HandleTypeDef *htim);
-uint8_t getTimerClkSrc(TIM_TypeDef *tim);
-
-#else // if regular stm32duino based stm boards
+#if defined(ARDUINO_ARCH_STM32)
 
 #include "stm32_def.h"
 
+#include "stm32_handle_types.h"
+
 #if defined(HAL_TIM_MODULE_ONLY)
-void enableTimerClock(TIM_HandleTypeDef *htim);
+void enableTimerClock(TIMER_HANDLE_TYPE *htim);
 void enableTimerClock(TIM_TypeDef *tim);
 
 constexpr uint8_t getTimerClkSrc(TIM_TypeDef *tim)
@@ -126,6 +105,28 @@ constexpr uint8_t getTimerClkSrc(TIM_TypeDef *tim)
 }
 #endif
 
+void stm32_pauseTimer(TIMER_HANDLE_TYPE* handle);
+void stm32_resumeTimer(TIMER_HANDLE_TYPE* handle);
+void stm32_refreshTimer(TIMER_HANDLE_TYPE* handle);
+void stm32_pauseChannel(TIMER_HANDLE_TYPE* handle, uint32_t llchannels);
+void stm32_resumeChannel(TIMER_HANDLE_TYPE* handle, uint32_t llchannels);
+uint32_t stm32_setClockAndARR(TIMER_HANDLE_TYPE* handle, uint32_t PWM_freq);
+uint8_t stm32_countTimers(TIMER_HANDLE_TYPE *timers[], uint8_t num_timers);
+uint8_t stm32_distinctTimers(TIMER_HANDLE_TYPE* timers_in[], uint8_t num_timers, TIMER_HANDLE_TYPE* timers_out[]);
+#ifdef USE_HALV2_DRIVER
+hal_tim_channel_t stm32_getHALChannel(uint32_t channel);
+#else
+uint32_t stm32_getHALChannel(uint32_t channel);
+#endif
+uint32_t stm32_getLLChannel(PinMap* timer);
+int stm32_getInternalSourceTrigger(TIMER_HANDLE_TYPE* master, TIMER_HANDLE_TYPE* slave);
+TIMER_HANDLE_TYPE* stm32_alignTimers(TIMER_HANDLE_TYPE *timers_in[], uint8_t num_timers_in);
+void stm32_setPwm(TIMER_HANDLE_TYPE *timer, uint32_t channel, uint32_t value);
+uint32_t stm32_getTimerClockFreq(TIMER_HANDLE_TYPE* handle);
+
+#if defined(__MBED__)
+void enableTimerClock(TIM_HandleTypeDef *htim);
+uint8_t getTimerClkSrc(TIM_TypeDef *tim);
 #endif
 
 #if defined(SIMPLEFOC_STM32_DEBUG)

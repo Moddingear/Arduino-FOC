@@ -2,7 +2,7 @@
 
 #include "Arduino.h"
 
-#if defined(_STM32_DEF_) 
+#if defined(ARDUINO_ARCH_STM32)
 
 #include "stm32_mcu.h"
 
@@ -12,7 +12,7 @@
 #define ADC_COUNT 5
 
 // pointer to the ADC handles used in the project
-ADC_HandleTypeDef* _get_adc_handles();
+ADC_HANDLE_TYPE* _get_adc_handles();
 
 int _adc_init_regular(ADC_TypeDef* adc_instance);
 int _adc_init(Stm32CurrentSenseParams* cs_params, const STM32DriverParams* driver_params);

@@ -2,18 +2,135 @@
 #include "./stm32_timerutils.h"
 #include <Arduino.h>
 
-#if defined(_STM32_DEF_) || defined(TARGET_STM32H7) // if stm32duino or portenta
+#if defined(ARDUINO_ARCH_STM32) // if stm32duino or portenta
 
 #if defined(HAL_TIM_MODULE_ONLY)
 
 //Functions copied over and modified from HardwareTimer to allow disabling HardwareTimer
-void enableTimerClock(TIM_HandleTypeDef *htim)
+void enableTimerClock(TIMER_HANDLE_TYPE *htim)
 {
-  enableTimerClock(htim->Instance);
+  enableTimerClock(TIMER_INSTANCE(htim));
 }
 
 void enableTimerClock(TIM_TypeDef *tim)
 {
+  #ifdef USE_HALV2_DRIVER
+  switch ((uintptr_t)tim)
+  {
+#if defined(TIM1_BASE)
+  case TIM1_BASE:
+    HAL_RCC_TIM12_EnableClock();
+    return;
+#endif
+#if defined(TIM2_BASE)
+  case TIM2_BASE:
+    HAL_RCC_TIM2_EnableClock();
+    return;
+#endif
+#if defined(TIM3_BASE)
+  case TIM3_BASE:
+    HAL_RCC_TIM3_EnableClock();
+    return;
+#endif
+#if defined(TIM4_BASE)
+  case TIM4_BASE:
+    HAL_RCC_TIM4_EnableClock();
+    return;
+#endif
+#if defined(TIM5_BASE)
+  case TIM5_BASE:
+    HAL_RCC_TIM5_EnableClock();
+    return;
+#endif
+#if defined(TIM6_BASE)
+  case TIM6_BASE:
+    HAL_RCC_TIM6_EnableClock();
+    return;
+#endif
+#if defined(TIM7_BASE)
+  case TIM7_BASE:
+    HAL_RCC_TIM7_EnableClock();
+    return;
+#endif
+#if defined(TIM8_BASE)
+  case TIM8_BASE:
+    HAL_RCC_TIM8_EnableClock();
+    return;
+#endif
+#if defined(TIM9_BASE)
+  case TIM9_BASE:
+    HAL_RCC_TIM9_EnableClock();
+    return;
+#endif
+#if defined(TIM10_BASE)
+  case TIM10_BASE:
+    HAL_RCC_TIM10_EnableClock();
+    return;
+#endif
+#if defined(TIM11_BASE)
+  case TIM11_BASE:
+    HAL_RCC_TIM11_EnableClock();
+    return;
+#endif
+#if defined(TIM12_BASE)
+  case TIM12_BASE:
+    HAL_RCC_TIM12_EnableClock();
+    return;
+#endif
+#if defined(TIM13_BASE)
+  case TIM13_BASE:
+    HAL_RCC_TIM13_EnableClock();
+    return;
+#endif
+#if defined(TIM14_BASE)
+  case TIM14_BASE:
+    HAL_RCC_TIM14_EnableClock();
+    return;
+#endif
+#if defined(TIM15_BASE)
+  case TIM15_BASE:
+    HAL_RCC_TIM15_EnableClock();
+    return;
+#endif
+#if defined(TIM16_BASE)
+  case TIM16_BASE:
+    HAL_RCC_TIM16_EnableClock();
+    return;
+#endif
+#if defined(TIM17_BASE)
+  case TIM17_BASE:
+    HAL_RCC_TIM17_EnableClock();
+    return;
+#endif
+#if defined(TIM18_BASE)
+  case TIM18_BASE:
+    HAL_RCC_TIM18_EnableClock();
+    return;
+#endif
+#if defined(TIM19_BASE)
+  case TIM19_BASE:
+    HAL_RCC_TIM19_EnableClock();
+    return;
+#endif
+#if defined(TIM20_BASE)
+  case TIM20_BASE:
+    HAL_RCC_TIM20_EnableClock();
+    return;
+#endif
+#if defined(TIM21_BASE)
+  case TIM21_BASE:
+    HAL_RCC_TIM21_EnableClock();
+    return;
+#endif
+#if defined(TIM22_BASE)
+  case TIM22_BASE:
+    HAL_RCC_TIM22_EnableClock();
+    return;
+#endif
+  default:
+    break;
+  }
+  #else
   switch ((uintptr_t)tim)
   {
 #if defined(TIM1_BASE)
@@ -130,37 +247,38 @@ void enableTimerClock(TIM_TypeDef *tim)
   default:
     break;
   }
+  #endif
 }
 
 #endif
 
-void stm32_pauseTimer(TIM_HandleTypeDef* handle){
+void stm32_pauseTimer(TIMER_HANDLE_TYPE* handle){
   /* Disable timer unconditionally. Required to guarantee timer is stopped,
    * even if some channels are still running */
-  LL_TIM_DisableCounter(handle->Instance);
+  LL_TIM_DisableCounter(TIMER_INSTANCE(handle));
 //  handle->State = HAL_TIM_STATE_READY;
   // on advanced control timers there is also the option of using the brake or the MOE?
   // TIM1->EGR |= TIM_EGR_BG; // break generation
 }
 
 
-void stm32_resumeTimer(TIM_HandleTypeDef* handle){
-  LL_TIM_EnableCounter(handle->Instance);
+void stm32_resumeTimer(TIMER_HANDLE_TYPE* handle){
+  LL_TIM_EnableCounter(TIMER_INSTANCE(handle));
 }
 
 
-void stm32_refreshTimer(TIM_HandleTypeDef* handle){
-  handle->Instance->EGR = TIM_EVENTSOURCE_UPDATE;
+void stm32_refreshTimer(TIMER_HANDLE_TYPE* handle){
+  LL_TIM_GenerateEvent_UPDATE(TIMER_INSTANCE(handle));
 }
 
 
-void stm32_pauseChannel(TIM_HandleTypeDef* handle, uint32_t llchannels){
-    LL_TIM_CC_DisableChannel(handle->Instance, llchannels);
+void stm32_pauseChannel(TIMER_HANDLE_TYPE* handle, uint32_t llchannels){
+    LL_TIM_CC_DisableChannel(TIMER_INSTANCE(handle), llchannels);
 }
 
 
-void stm32_resumeChannel(TIM_HandleTypeDef* handle, uint32_t llchannels){
-    LL_TIM_CC_EnableChannel(handle->Instance, llchannels);
+void stm32_resumeChannel(TIMER_HANDLE_TYPE* handle, uint32_t llchannels){
+    LL_TIM_CC_EnableChannel(TIMER_INSTANCE(handle), llchannels);
 }
 
 
@@ -170,17 +288,17 @@ void stm32_resumeChannel(TIM_HandleTypeDef* handle, uint32_t llchannels){
 
 
 
-uint32_t stm32_setClockAndARR(TIM_HandleTypeDef* handle, uint32_t PWM_freq) {
+uint32_t stm32_setClockAndARR(TIMER_HANDLE_TYPE* handle, uint32_t PWM_freq) {
   // set the clock
   uint32_t arr_value = 0;
   uint32_t cycles = stm32_getTimerClockFreq(handle) / PWM_freq / 2;
   uint32_t prescaler = (cycles / 0x10000) + 1; // TODO consider 32 bit timers
-  LL_TIM_SetPrescaler(handle->Instance, prescaler - 1);
+  LL_TIM_SetPrescaler(TIMER_INSTANCE(handle), prescaler - 1);
   uint32_t ticks = cycles / prescaler;
   if (ticks > 0) {
     arr_value = ticks - 1;
   }
-  __HAL_TIM_SET_AUTORELOAD(handle, arr_value);
+  LL_TIM_SetAutoReload(TIMER_INSTANCE(handle), arr_value);
   stm32_refreshTimer(handle);
   // #ifdef SIMPLEFOC_STM32_DEBUG
   //   SIMPLEFOC_DEBUG("STM32-DRV: Timer clock: ", (int)stm32_getTimerClockFreq(handle));
@@ -195,53 +313,54 @@ uint32_t stm32_setClockAndARR(TIM_HandleTypeDef* handle, uint32_t PWM_freq) {
 
 
 // setting pwm to hardware pin - instead analogWrite()
-void stm32_setPwm(TIM_HandleTypeDef *timer, uint32_t channel, uint32_t value) {
+void stm32_setPwm(TIMER_HANDLE_TYPE *timer, uint32_t channel, uint32_t value) {
   // value assumed to be in correct range
   switch (channel) {
-    case 1: timer->Instance->CCR1 = value; break;
-    case 2: timer->Instance->CCR2 = value; break;
-    case 3: timer->Instance->CCR3 = value; break;
-    case 4: timer->Instance->CCR4 = value; break;
+    case 1: TIMER_INSTANCE(timer)->CCR1 = value; break;
+    case 2: TIMER_INSTANCE(timer)->CCR2 = value; break;
+    case 3: TIMER_INSTANCE(timer)->CCR3 = value; break;
+    case 4: TIMER_INSTANCE(timer)->CCR4 = value; break;
     #ifdef LL_TIM_CHANNEL_CH5
-    case 5: timer->Instance->CCR5 = value; break;
+    case 5: TIMER_INSTANCE(timer)->CCR5 = value; break;
     #endif
     #ifdef LL_TIM_CHANNEL_CH6
-    case 6: timer->Instance->CCR6 = value; break;
+    case 6: TIMER_INSTANCE(timer)->CCR6 = value; break;
     #endif
     default: break;
   }
 }
 
-
-uint32_t stm32_getHALChannel(uint32_t channel) {
+#ifdef USE_HALV2_DRIVER
+hal_tim_channel_t stm32_getHALChannel(uint32_t channel) 
+#else
+uint32_t stm32_getHALChannel(uint32_t channel) 
+#endif
+{
   uint32_t return_value;
+  #ifdef USE_HALV2_DRIVER
+  return static_cast<hal_tim_channel_t>(channel -1);
+  #else
   switch (channel) {
     case 1:
-      return_value = TIM_CHANNEL_1;
-      break;
+      return TIM_CHANNEL_1;
     case 2:
-      return_value = TIM_CHANNEL_2;
-      break;
+      return TIM_CHANNEL_2;
     case 3:
-      return_value = TIM_CHANNEL_3;
-      break;
+      return TIM_CHANNEL_3;
     case 4:
-      return_value = TIM_CHANNEL_4;
-      break;
+      return TIM_CHANNEL_4;
     #ifdef TIM_CHANNEL_5
     case 5:
-      return_value = TIM_CHANNEL_5;
-      break;
+      return TIM_CHANNEL_5;
     #endif
     #ifdef TIM_CHANNEL_6
     case 6:
-      return_value = TIM_CHANNEL_6;
-      break;
+      return TIM_CHANNEL_6;
     #endif
     default:
-      return_value = -1;
+      return -1;
   }
-  return return_value;
+  #endif
 }
 
 
@@ -280,7 +399,7 @@ uint32_t stm32_getLLChannel(PinMap* timer) {
 
 
 
-uint8_t stm32_countTimers(TIM_HandleTypeDef *timers[], uint8_t num_timers) {
+uint8_t stm32_countTimers(TIMER_HANDLE_TYPE *timers[], uint8_t num_timers) {
   uint8_t count = 1;
   for (int i=1; i<num_timers; i++) {
     if (timers[i] != NULL) break;
@@ -297,7 +416,7 @@ uint8_t stm32_countTimers(TIM_HandleTypeDef *timers[], uint8_t num_timers) {
   return count;
 }
 
-uint8_t stm32_distinctTimers(TIM_HandleTypeDef* timers_in[], uint8_t num_timers, TIM_HandleTypeDef* timers_out[]) {
+uint8_t stm32_distinctTimers(TIMER_HANDLE_TYPE* timers_in[], uint8_t num_timers, TIMER_HANDLE_TYPE* timers_out[]) {
   uint8_t count = 0;
   for (int i=0; i<num_timers; i++) {
     if (timers_in[i] == NULL) continue;
@@ -583,7 +702,7 @@ int stm32_getInternalSourceTrigger(TIM_HandleTypeDef* master, TIM_HandleTypeDef*
 }
 #else
 // Alignment not supported for this architecture
-int stm32_getInternalSourceTrigger(TIM_HandleTypeDef* master, TIM_HandleTypeDef* slave) {
+int stm32_getInternalSourceTrigger(TIMER_HANDLE_TYPE* master, TIMER_HANDLE_TYPE* slave) {
   return -1;
 }
 #endif
@@ -615,9 +734,9 @@ int stm32_getInternalSourceTrigger(TIM_HandleTypeDef* master, TIM_HandleTypeDef*
 // are started/stopped automatically with the master. TODO probably just using gated mode is better
 // On older chips (STM32F1) we used gated mode to start/stop the slave timers with the master, but have to take
 // care of the reset manually. TODO is it really needed to reset the timers?
-TIM_HandleTypeDef* stm32_alignTimers(TIM_HandleTypeDef *timers_in[], uint8_t num_timers_in) {
+TIMER_HANDLE_TYPE* stm32_alignTimers(TIMER_HANDLE_TYPE *timers_in[], uint8_t num_timers_in) {
   // find the timers used
-  TIM_HandleTypeDef *timers[6];
+  TIMER_HANDLE_TYPE *timers[6];
   int numTimers = stm32_distinctTimers(timers_in, num_timers_in, timers);
 
   // compare with the existing timers used for other motors...
@@ -628,7 +747,7 @@ TIM_HandleTypeDef* stm32_alignTimers(TIM_HandleTypeDef *timers_in[], uint8_t num
         if (params->timers_handle[k] == NULL) break;
         if (params->timers_handle[k] == timers[i]) {
           #ifdef SIMPLEFOC_STM32_DEBUG
-            SIMPLEFOC_DEBUG("STM32-DRV: ERR: Timer already used by another motor: TIM", stm32_getTimerNumber(timers[i]->Instance));
+            SIMPLEFOC_DEBUG("STM32-DRV: ERR: Timer already used by another motor: TIM", stm32_getTimerNumber(TIMER_INSTANCE(timers[i])));
           #endif
           // TODO handle this case, and make it a warning
           // two sub-cases we could handle at the moment:
@@ -653,10 +772,10 @@ TIM_HandleTypeDef* stm32_alignTimers(TIM_HandleTypeDef *timers_in[], uint8_t num
     int triggerEvent = -1;
     for (int i=0; i<numTimers; i++) {
       // check if timer can be master
-      if(IS_TIM_MASTER_INSTANCE(timers[i]->Instance)) {
+      if(IS_TIM_MASTER_INSTANCE(TIMER_INSTANCE(timers[i]))) {
         // check if timer already configured in TRGO update mode (used for ADC triggering)
         // in that case we should not change its TRGO configuration
-        if(timers[i]->Instance->CR2 & LL_TIM_TRGO_UPDATE) continue;
+        if(TIMER_INSTANCE(timers[i])->CR2 & LL_TIM_TRGO_UPDATE) continue;
         // check if the timer has the supported internal trigger for other timers
         for (int slave_i=0; slave_i<numTimers; slave_i++) {
           if (i==slave_i) continue; // skip self
@@ -679,13 +798,13 @@ TIM_HandleTypeDef* stm32_alignTimers(TIM_HandleTypeDef *timers_in[], uint8_t num
       #endif
     }else{
       #ifdef SIMPLEFOC_STM32_DEBUG
-        SIMPLEFOC_DEBUG("STM32-DRV: master timer: TIM",  stm32_getTimerNumber(timers[master_index]->Instance));
+        SIMPLEFOC_DEBUG("STM32-DRV: master timer: TIM",  stm32_getTimerNumber(TIMER_INSTANCE(timers[master_index])));
       #endif
       // make the master timer generate ITRGx event
       // if it was already configured in slave mode, disable the slave mode on the master
-      LL_TIM_SetSlaveMode(timers[master_index]->Instance, LL_TIM_SLAVEMODE_DISABLED );
+      LL_TIM_SetSlaveMode(TIMER_INSTANCE(timers[master_index]), LL_TIM_SLAVEMODE_DISABLED );
       // Configure the master  timer to send a trigger signal on enable 
-      LL_TIM_SetTriggerOutput(timers[master_index]->Instance, LL_TIM_TRGO_ENABLE);
+      LL_TIM_SetTriggerOutput(TIMER_INSTANCE(timers[master_index]), LL_TIM_TRGO_ENABLE);
       //LL_TIM_EnableMasterSlaveMode(timers[master_index]->Instance);
       
       // configure other timers to get the input trigger from the master timer
@@ -693,25 +812,25 @@ TIM_HandleTypeDef* stm32_alignTimers(TIM_HandleTypeDef *timers_in[], uint8_t num
         if (slave_index == master_index)
           continue;
         #ifdef SIMPLEFOC_STM32_DEBUG
-          SIMPLEFOC_DEBUG("STM32-DRV: slave timer: TIM",  stm32_getTimerNumber(timers[slave_index]->Instance));
+          SIMPLEFOC_DEBUG("STM32-DRV: slave timer: TIM",  stm32_getTimerNumber(TIMER_INSTANCE(timers[slave_index])));
         #endif
         // Configure the slave timer to be triggered by the master enable signal
         uint32_t trigger = stm32_getInternalSourceTrigger(timers[master_index], timers[slave_index]);
         // #ifdef SIMPLEFOC_STM32_DEBUG
         //   SIMPLEFOC_DEBUG("STM32-DRV: slave trigger ITR ", (int)trigger);
         // #endif
-        LL_TIM_SetTriggerInput(timers[slave_index]->Instance, trigger);
+        LL_TIM_SetTriggerInput(TIMER_INSTANCE(timers[slave_index]), trigger);
         // #if defined(STM32G4xx)
         // LL_TIM_SetSlaveMode(timers[slave_index]->Instance, LL_TIM_SLAVEMODE_COMBINED_GATEDRESET);
         // #else
-        LL_TIM_SetSlaveMode(timers[slave_index]->Instance, LL_TIM_SLAVEMODE_GATED);
+        LL_TIM_SetSlaveMode(TIMER_INSTANCE(timers[slave_index]), LL_TIM_SLAVEMODE_GATED);
         // #endif
       }
       for (int i=0; i<numTimers; i++) { // resume the timers TODO at the moment the first PWM cycle is not well-aligned
         stm32_refreshTimer(timers[i]);
         if (i != master_index)
           stm32_resumeTimer(timers[i]);
-        SIMPLEFOC_DEBUG("STM32-DRV: slave counter: ", (int)timers[i]->Instance->CNT);
+        SIMPLEFOC_DEBUG("STM32-DRV: slave counter: ", (int)TIMER_INSTANCE(timers[i])->CNT);
       }
       stm32_resumeTimer(timers[master_index]);
       return timers[master_index];
@@ -729,7 +848,10 @@ TIM_HandleTypeDef* stm32_alignTimers(TIM_HandleTypeDef *timers_in[], uint8_t num
 
 
 
-uint32_t stm32_getTimerClockFreq(TIM_HandleTypeDef *handle) {
+uint32_t stm32_getTimerClockFreq(TIMER_HANDLE_TYPE *handle) {
+#ifdef USE_HALV2_DRIVER
+  return HAL_TIM_GetClockFreq(handle);
+#else
 #if defined(STM32MP1xx)
   uint8_t timerClkSrc = getTimerClkSrc(handle->Instance);
   uint64_t clkSelection = timerClkSrc == 1 ? RCC_PERIPHCLK_TIMG1 : RCC_PERIPHCLK_TIMG2;
@@ -852,6 +974,7 @@ uint32_t stm32_getTimerClockFreq(TIM_HandleTypeDef *handle) {
 #endif /* STM32H7xx */
   return uwTimclock;
 #endif /* STM32MP1xx */
+#endif
 }
 
 

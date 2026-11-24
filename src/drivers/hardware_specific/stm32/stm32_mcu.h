@@ -2,8 +2,11 @@
 
 #include "../../hardware_api.h"
 
-#if defined(_STM32_DEF_) || defined(TARGET_STM32H7)
+
+#if defined(ARDUINO_ARCH_STM32)
 // TARGET_M4 / TARGET_M7
+
+#include "stm32_handle_types.h"
 
 #ifndef SIMPLEFOC_STM32_MAX_TIMERSUSED
 #define SIMPLEFOC_STM32_MAX_TIMERSUSED 6
@@ -41,13 +44,14 @@
 #define _ERROR_6PWM -1
 
 
+
 typedef struct STM32DriverParams {
-  TIM_HandleTypeDef* timers_handle[6] = {NULL};
+  TIMER_HANDLE_TYPE* timers_handle[6] = {NULL};
   uint32_t channels[6];
   uint32_t llchannels[6];
   long pwm_frequency;
   uint8_t num_timers;
-  TIM_HandleTypeDef* master_timer = NULL;
+  TIMER_HANDLE_TYPE* master_timer = NULL;
   float dead_zone;
   uint8_t interface_type;
 } STM32DriverParams;
@@ -58,11 +62,11 @@ int stm32_getNumTimersUsed();
 int stm32_getNumMotorsUsed();
 int stm32_getNumTimersReserved();
 STM32DriverParams* stm32_getMotorUsed(int index);
-bool stm32_isTimerUsed(TIM_HandleTypeDef* timer);
+bool stm32_isTimerUsed(TIMER_HANDLE_TYPE* timer);
 bool stm32_isChannelUsed(PinMap* pin);
 bool stm32_isTimerReserved(TIM_TypeDef* timer);
-TIM_HandleTypeDef* stm32_getTimer(PinMap* timer);
-TIM_HandleTypeDef* stm32_useTimer(PinMap* timer);
+TIMER_HANDLE_TYPE* stm32_getTimer(PinMap* timer);
+TIMER_HANDLE_TYPE* stm32_useTimer(PinMap* timer);
 bool stm32_reserveTimer(TIM_TypeDef* timer);
 
 void stm32_pause(STM32DriverParams* params);

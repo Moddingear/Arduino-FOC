@@ -1,14 +1,14 @@
 
 #include "../../hardware_api.h"
 
-#if defined(_STM32_DEF_) and !defined(ARDUINO_B_G431B_ESC1) 
+#if defined(ARDUINO_ARCH_STM32) and !defined(ARDUINO_B_G431B_ESC1)
 
 #include "stm32_mcu.h"
 
 #define _ADC_VOLTAGE 3.3f
 #define _ADC_RESOLUTION 1024.0f
 
-extern ADC_HandleTypeDef hadc[];
+extern ADC_HANDLE_TYPE hadc[];
 
 // function reading an ADC value and returning the read voltage
 void* _configureADCInline(const void* driver_params, const int pinA,const int pinB,const int pinC){
