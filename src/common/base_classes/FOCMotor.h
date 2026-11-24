@@ -293,6 +293,8 @@ class FOCMotor
     unsigned int  monitor_decimals = 4; //!< monitor outputs decimal places
     // initial monitoring will display target, voltage, velocity and angle
     uint8_t monitor_variables = _MON_TARGET | _MON_VOLT_Q | _MON_VEL | _MON_ANGLE; //!< Bit array holding the map of variables the user wants to monitor
+
+    float *monitor_pointers[sizeof(monitor_variables) * 8];
    
     /** 
       * Sensor link:

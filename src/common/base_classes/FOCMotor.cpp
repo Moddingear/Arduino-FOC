@@ -46,6 +46,13 @@ FOCMotor::FOCMotor()
   //current sensor 
   current_sense = nullptr;
 
+  monitor_pointers[0] = &shaft_angle;
+  monitor_pointers[1] = &shaft_velocity;
+  monitor_pointers[2] = &current.d;
+  monitor_pointers[3] = &current.q;
+  monitor_pointers[4] = &voltage.d;
+  monitor_pointers[5] = &voltage.q;
+  monitor_pointers[6] = &target;
 }
 
 void FOCMotor::disable()
@@ -363,6 +370,36 @@ void FOCMotor::monitor() {
   if(!monitor_port) return;
   bool printed = 0;
 
+  #if 1
+  static const int num_pointers = sizeof(monitor_pointers)/sizeof(monitor_pointers[0]);
+  //if we monitor D and Q current, but the variables are those of the motor and we aren't actively updating these because we're not in FOC current mode
+  if((monitor_variables & _MON_CURR_Q || monitor_variables & _MON_CURR_D) && monitor_pointers[2] == &current.d && monitor_pointers[3] == &current.q) {
+    #if SIMPLEFOC_SPLIT_CONTROLLER
+    if( current_sense )
+    #else
+    if( current_sense && torque_controller != TorqueControlType::foc_current )
+    #endif
+    {
+      current = current_sense->getFOCCurrents(electrical_angle);
+      #if !SIMPLEFOC_SPLIT_CONTROLLER
+      current.q = LPF_current_q(current.q);
+      current.d = LPF_current_d(current.d);
+      #endif
+    }
+  }
+
+  for (int i = num_pointers -1; i >=0; i--)
+  {
+    if (monitor_variables & (1<<i) && monitor_pointers[i] != nullptr)
+    {
+      if(!printed && monitor_start_char) monitor_port->print(monitor_start_char);
+      else if(printed) monitor_port->print(monitor_separator);
+      monitor_port->print(*monitor_pointers[i],monitor_decimals);
+      printed = true;
+    }
+  }
+  
+  #else
   if(monitor_variables & _MON_TARGET){
     if(!printed && monitor_start_char) monitor_port->print(monitor_start_char);
     monitor_port->print(target,monitor_decimals);    
@@ -414,6 +451,7 @@ void FOCMotor::monitor() {
     monitor_port->print(shaft_angle,monitor_decimals);
     printed= true;
   }
+  #endif
   if(printed){
     if(monitor_end_char) monitor_port->println(monitor_end_char);
     else monitor_port->println("");
