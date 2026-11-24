@@ -78,15 +78,13 @@ int BLDCDriver6PWM::init() {
 
 // Set voltage to the pwm pin
 void BLDCDriver6PWM::setPwm(float Ua, float Ub, float Uc) {
-  // limit the voltage in driver
-  Ua = _constrain(Ua, 0, voltage_limit);
-  Ub = _constrain(Ub, 0, voltage_limit);
-  Uc = _constrain(Uc, 0, voltage_limit);
+
+  const float max_duty = voltage_limit/voltage_power_supply;
   // calculate duty cycle
   // limited in [0,1]
-  dc_a = _constrain(Ua / voltage_power_supply, 0.0f , 1.0f );
-  dc_b = _constrain(Ub / voltage_power_supply, 0.0f , 1.0f );
-  dc_c = _constrain(Uc / voltage_power_supply, 0.0f , 1.0f );
+  dc_a = _constrain(Ua / voltage_power_supply, 0.0f , max_duty );
+  dc_b = _constrain(Ub / voltage_power_supply, 0.0f , max_duty );
+  dc_c = _constrain(Uc / voltage_power_supply, 0.0f , max_duty );
   // hardware specific writing
   // hardware specific function - depending on driver and mcu
   _writeDutyCycle6PWM(dc_a, dc_b, dc_c, phase_state, params);
