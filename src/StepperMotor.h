@@ -80,7 +80,7 @@ class StepperMotor: public FOCMotor
      * @param voltage The voltage applied to the motor
      * @returns 0 for success, >0 for failure
      */
-    int characteriseMotor(float voltage){
+    int characteriseMotor(float voltage) override {
       return FOCMotor::characteriseMotor(voltage, 1.0f);
     }
 

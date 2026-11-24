@@ -21,10 +21,6 @@ StepperMotor::StepperMotor(int pp, float _R, float _KV, float _Lq, float _Ld)
   // save phase inductance
   axis_inductance = {_Ld, _Lq};
   phase_inductance = _Lq;  // FOR BACKWARDS COMPATIBILITY
-
-  // torque control type is voltage by default
-  // current and foc_current not supported yet
-  torque_controller = TorqueControlType::voltage;
 }
 
 /**
@@ -83,31 +79,16 @@ int StepperMotor::init() {
 // disable motor driver
 void StepperMotor::disable()
 {
-  // disable the current sense
-  if(current_sense) current_sense->disable();
-  // set zero to PWM
-  driver->setPwm(0, 0);
   // disable driver
   driver->disable();
-  // motor status update
-  enabled = 0;
+  FOCMotor::disable();
 }
 // enable motor driver
 void StepperMotor::enable()
 {
   // disable enable
   driver->enable();
-  // set zero to PWM
-  driver->setPwm(0, 0);
-  // enable the current sense
-  if(current_sense) current_sense->enable();
-  // reset the pids
-  PID_velocity.reset();
-  P_angle.reset();
-  PID_current_q.reset();
-  PID_current_d.reset();
-  // motor status update
-  enabled = 1;
+  FOCMotor::enable();
 }
 
 

@@ -78,7 +78,7 @@ public:
      * @param voltage The voltage applied to the motor
      * @returns 0 for success, >0 for failure
      */
-    int characteriseMotor(float voltage){
+    int characteriseMotor(float voltage) override{
       // correction factor is not correct here, 
       // we need to add the driver reistance to compensate for the voltage drop on it, but it is a good starting point for now
       return FOCMotor::characteriseMotor(voltage, 1.0f); 

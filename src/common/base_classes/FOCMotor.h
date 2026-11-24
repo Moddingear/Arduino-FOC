@@ -108,9 +108,9 @@ class FOCMotor
     /**  Motor hardware init function */
   	virtual int init() = 0;
     /** Motor disable function */
-  	virtual void disable()=0;
+  	virtual void disable();
     /** Motor enable function */
-    virtual void enable()=0;
+    virtual void enable();
 
     /**
     * Method using FOC to set Uq to the motor at the optimal angle
@@ -196,6 +196,7 @@ class FOCMotor
      * @returns 0 for success, >0 for failure
      */
     int characteriseMotor(float voltage, float correction_factor);
+    virtual int characteriseMotor(float voltage) = 0;
 
     /**
      * Auto-tune the current controller PID parameters based on desired bandwidth.

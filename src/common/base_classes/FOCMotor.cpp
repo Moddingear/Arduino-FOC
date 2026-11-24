@@ -23,6 +23,7 @@ FOCMotor::FOCMotor()
 
   // default target value
   target = 0;
+  torque_controller = TorqueControlType::voltage;
   voltage.d = 0;
   voltage.q = 0;
   // current target values
@@ -44,6 +45,30 @@ FOCMotor::FOCMotor()
   sensor = nullptr;
   //current sensor 
   current_sense = nullptr;
+
+}
+
+void FOCMotor::disable()
+{
+  // disable the current sense
+  if(current_sense) current_sense->disable();
+  // motor status update
+  enabled = 0;
+}
+
+void FOCMotor::enable()
+{
+  // enable the current sense
+  if(current_sense) current_sense->enable();
+  // reset the pids
+  #if !SIMPLEFOC_SPLIT_CONTROLLER
+  PID_velocity.reset();
+  P_angle.reset();
+  PID_current_q.reset();
+  PID_current_d.reset();
+  #endif
+  // motor status update
+  enabled = 1;
 }
 
 
@@ -98,7 +123,7 @@ void FOCMotor::useMonitoring(Print &print){
 }
 
 // Measure resistance and inductance of a motor
-int FOCMotor::characteriseMotor(float voltage, float correction_factor=1.0f){
+int FOCMotor::characteriseMotor(float voltage, float correction_factor){
 
     auto old_status = motor_status;
     motor_status = FOCMotorStatus::motor_calibrating;
